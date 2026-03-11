@@ -1,111 +1,125 @@
 import type { Idl, IdlType, IdlTypeDef } from "@/types/idl";
 import { getDefinedTypeName } from "@/types/idl";
+import {
+  getU8Decoder,
+  getU16Decoder,
+  getU32Decoder,
+  getU64Decoder,
+  getU128Decoder,
+  getI8Decoder,
+  getI16Decoder,
+  getI32Decoder,
+  getI64Decoder,
+  getI128Decoder,
+  getF32Decoder,
+  getF64Decoder,
+  getBooleanDecoder,
+  getAddressDecoder,
+} from "@solana/kit";
 
-// --- Minimal base58 encoder ---
+// Pre-create decoders (they're stateless and reusable)
+const u8 = getU8Decoder();
+const u16 = getU16Decoder();
+const u32 = getU32Decoder();
+const u64 = getU64Decoder();
+const u128 = getU128Decoder();
+const i8d = getI8Decoder();
+const i16 = getI16Decoder();
+const i32 = getI32Decoder();
+const i64 = getI64Decoder();
+const i128 = getI128Decoder();
+const f32 = getF32Decoder();
+const f64 = getF64Decoder();
+const bool = getBooleanDecoder();
+const addressDecoder = getAddressDecoder();
 
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-
-function encodeBase58(bytes: Uint8Array): string {
-  // Count leading zeros
-  let leadingZeros = 0;
-  for (const b of bytes) {
-    if (b !== 0) break;
-    leadingZeros++;
-  }
-
-  // Convert byte array to bigint
-  let num = 0n;
-  for (const b of bytes) {
-    num = num * 256n + BigInt(b);
-  }
-
-  // Convert to base58
-  const chars: string[] = [];
-  while (num > 0n) {
-    const remainder = Number(num % 58n);
-    num = num / 58n;
-    chars.unshift(BASE58_ALPHABET[remainder]);
-  }
-
-  // Add leading '1's for leading zero bytes
-  for (let i = 0; i < leadingZeros; i++) {
-    chars.unshift("1");
-  }
-
-  return chars.join("") || "1";
-}
-
-// --- BorshReader ---
+// --- BorshReader using @solana/kit codecs ---
 
 export class BorshReader {
-  private data: DataView;
   private bytes: Uint8Array;
   offset: number;
 
   constructor(buffer: Uint8Array) {
     this.bytes = buffer;
-    this.data = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     this.offset = 0;
   }
 
   readU8(): number {
-    const val = this.data.getUint8(this.offset);
-    this.offset += 1;
+    const [val, next] = u8.read(this.bytes, this.offset);
+    this.offset = next;
     return val;
   }
 
   readU16(): number {
-    const val = this.data.getUint16(this.offset, true);
-    this.offset += 2;
+    const [val, next] = u16.read(this.bytes, this.offset);
+    this.offset = next;
     return val;
   }
 
   readU32(): number {
-    const val = this.data.getUint32(this.offset, true);
-    this.offset += 4;
+    const [val, next] = u32.read(this.bytes, this.offset);
+    this.offset = next;
     return val;
   }
 
   readU64(): bigint {
-    const val = this.data.getBigUint64(this.offset, true);
-    this.offset += 8;
+    const [val, next] = u64.read(this.bytes, this.offset);
+    this.offset = next;
     return val;
   }
 
   readU128(): bigint {
-    const lo = this.data.getBigUint64(this.offset, true);
-    const hi = this.data.getBigUint64(this.offset + 8, true);
-    this.offset += 16;
-    return (hi << 64n) | lo;
+    const [val, next] = u128.read(this.bytes, this.offset);
+    this.offset = next;
+    return val;
   }
 
   readI8(): number {
-    const val = this.data.getInt8(this.offset);
-    this.offset += 1;
+    const [val, next] = i8d.read(this.bytes, this.offset);
+    this.offset = next;
     return val;
   }
 
   readI16(): number {
-    const val = this.data.getInt16(this.offset, true);
-    this.offset += 2;
+    const [val, next] = i16.read(this.bytes, this.offset);
+    this.offset = next;
     return val;
   }
 
   readI32(): number {
-    const val = this.data.getInt32(this.offset, true);
-    this.offset += 4;
+    const [val, next] = i32.read(this.bytes, this.offset);
+    this.offset = next;
     return val;
   }
 
   readI64(): bigint {
-    const val = this.data.getBigInt64(this.offset, true);
-    this.offset += 8;
+    const [val, next] = i64.read(this.bytes, this.offset);
+    this.offset = next;
+    return val;
+  }
+
+  readI128(): bigint {
+    const [val, next] = i128.read(this.bytes, this.offset);
+    this.offset = next;
     return val;
   }
 
   readBool(): boolean {
-    const val = this.readU8();
-    return val !== 0;
+    const [val, next] = bool.read(this.bytes, this.offset);
+    this.offset = next;
+    return val;
+  }
+
+  readF32(): number {
+    const [val, next] = f32.read(this.bytes, this.offset);
+    this.offset = next;
+    return val;
+  }
+
+  readF64(): number {
+    const [val, next] = f64.read(this.bytes, this.offset);
+    this.offset = next;
+    return val;
   }
 
   readString(): string {
@@ -123,9 +137,9 @@ export class BorshReader {
   }
 
   readPubkey(): string {
-    const keyBytes = this.bytes.slice(this.offset, this.offset + 32);
-    this.offset += 32;
-    return encodeBase58(keyBytes);
+    const [addr, next] = addressDecoder.read(this.bytes, this.offset);
+    this.offset = next;
+    return addr as string;
   }
 
   readVec<T>(innerReader: () => T): T[] {
@@ -141,18 +155,6 @@ export class BorshReader {
     const tag = this.readU8();
     if (tag === 0) return null;
     return innerReader();
-  }
-
-  readF32(): number {
-    const val = this.data.getFloat32(this.offset, true);
-    this.offset += 4;
-    return val;
-  }
-
-  readF64(): number {
-    const val = this.data.getFloat64(this.offset, true);
-    this.offset += 8;
-    return val;
   }
 
   readFixedArray<T>(innerReader: () => T, size: number): T[] {
@@ -217,8 +219,9 @@ function readField(
       case "i64":
         return reader.readI64();
       case "u128":
-      case "i128":
         return reader.readU128();
+      case "i128":
+        return reader.readI128();
       case "f32":
         return reader.readF32();
       case "f64":

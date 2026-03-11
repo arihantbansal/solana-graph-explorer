@@ -6,6 +6,11 @@ import {
   type ReactNode,
 } from "react";
 import type { UserRelationshipDef } from "@/types/relationships";
+import type { ProgramEntry } from "@/types/pdaExplorer";
+import {
+  loadSavedPrograms,
+  saveProgramEntries,
+} from "@/utils/localStorage";
 
 const STORAGE_KEY = "solana-graph-explorer:user-relationships";
 
@@ -32,6 +37,10 @@ interface SettingsContextValue {
   userRelationships: UserRelationshipDef[];
   addUserRelationship: (rel: UserRelationshipDef) => void;
   removeUserRelationship: (id: string) => void;
+  savedPrograms: ProgramEntry[];
+  saveProgram: (entry: ProgramEntry) => void;
+  removeProgram: (programId: string) => void;
+  refreshProgram: (programId: string, entry: ProgramEntry) => void;
 }
 
 function loadRelationships(): UserRelationshipDef[] {
@@ -56,6 +65,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [userRelationships, setUserRelationships] = useState<UserRelationshipDef[]>(
     loadRelationships
   );
+  const [savedPrograms, setSavedPrograms] = useState<ProgramEntry[]>(loadSavedPrograms);
 
   const rpcEndpoint =
     rpcEndpointKey === "custom"
@@ -78,6 +88,30 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const saveProgram = useCallback((entry: ProgramEntry) => {
+    setSavedPrograms((prev) => {
+      const next = [...prev.filter((p) => p.programId !== entry.programId), entry];
+      saveProgramEntries(next);
+      return next;
+    });
+  }, []);
+
+  const removeProgram = useCallback((programId: string) => {
+    setSavedPrograms((prev) => {
+      const next = prev.filter((p) => p.programId !== programId);
+      saveProgramEntries(next);
+      return next;
+    });
+  }, []);
+
+  const refreshProgram = useCallback((programId: string, entry: ProgramEntry) => {
+    setSavedPrograms((prev) => {
+      const next = prev.map((p) => (p.programId === programId ? entry : p));
+      saveProgramEntries(next);
+      return next;
+    });
+  }, []);
+
   return (
     <SettingsContext.Provider
       value={{
@@ -89,6 +123,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         userRelationships,
         addUserRelationship,
         removeUserRelationship,
+        savedPrograms,
+        saveProgram,
+        removeProgram,
+        refreshProgram,
       }}
     >
       {children}

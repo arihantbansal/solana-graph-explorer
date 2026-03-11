@@ -14,8 +14,11 @@ import "@xyflow/react/dist/style.css";
 
 import type { AccountNode, AccountEdge } from "@/types/graph";
 import { useGraph } from "@/contexts/GraphContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { AccountNodeComponent } from "@/components/AccountNode";
 import { AccountEdgeComponent } from "@/components/AccountEdge";
+import { expandAccount } from "@/engine/expandAccount";
+import type { ProgramEntry } from "@/types/pdaExplorer";
 
 // MUST be defined outside component per React Flow requirement
 const nodeTypes = {
@@ -28,6 +31,7 @@ const edgeTypes = {
 
 export function GraphCanvas() {
   const { state, dispatch } = useGraph();
+  const { rpcEndpoint, saveProgram } = useSettings();
 
   const onNodesChange: OnNodesChange<AccountNode> = useCallback(
     (changes) => {
@@ -57,10 +61,29 @@ export function GraphCanvas() {
   );
 
   const onNodeDoubleClick: NodeMouseHandler<AccountNode> = useCallback(
-    (_event, _node) => {
-      // placeholder: will trigger expand/fetch in future
+    (_event, node) => {
+      if (node.data.isExpanded || node.data.isLoading) return;
+      const existingIds = new Set(state.nodes.map((n) => n.id));
+      expandAccount(
+        node.id,
+        node.position,
+        rpcEndpoint,
+        existingIds,
+        dispatch,
+        {
+          onIdlFetched: (programId, idl) => {
+            const entry: ProgramEntry = {
+              programId,
+              programName: idl.metadata?.name ?? programId,
+              idlFetchedAt: Date.now(),
+              idl,
+            };
+            saveProgram(entry);
+          },
+        },
+      );
     },
-    []
+    [state.nodes, rpcEndpoint, dispatch, saveProgram],
   );
 
   const onPaneClick = useCallback(() => {

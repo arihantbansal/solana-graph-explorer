@@ -12,6 +12,8 @@ import { useSettings, RPC_OPTIONS, type RpcEndpointKey } from "@/contexts/Settin
 import { useGraph } from "@/contexts/GraphContext";
 import type { AccountNode } from "@/types/graph";
 import { Search } from "lucide-react";
+import { expandAccount } from "@/engine/expandAccount";
+import type { ProgramEntry } from "@/types/pdaExplorer";
 
 /** Basic Solana address validation: base58, 32-44 chars. */
 function isValidAddress(addr: string): boolean {
@@ -21,9 +23,9 @@ function isValidAddress(addr: string): boolean {
 export function SearchBar() {
   const [address, setAddress] = useState("");
   const [error, setError] = useState("");
-  const { rpcEndpointKey, setRpcEndpointKey, customRpcUrl, setCustomRpcUrl } =
+  const { rpcEndpoint, rpcEndpointKey, setRpcEndpointKey, customRpcUrl, setCustomRpcUrl, saveProgram } =
     useSettings();
-  const { dispatch } = useGraph();
+  const { state, dispatch } = useGraph();
 
   const handleExplore = useCallback(() => {
     const trimmed = address.trim();
@@ -37,35 +39,34 @@ export function SearchBar() {
     }
     setError("");
 
-    // Add a mock node for now (engine not ready)
+    const position = { x: 400, y: 300 };
     const node: AccountNode = {
       id: trimmed,
       type: "account",
-      position: { x: Math.random() * 400, y: Math.random() * 400 },
+      position,
       data: {
         address: trimmed,
         isExpanded: false,
         isLoading: true,
-        accountType: "Unknown",
       },
     };
     dispatch({ type: "ADD_NODES", nodes: [node] });
     dispatch({ type: "SELECT_NODE", nodeId: trimmed });
 
-    // Simulate loading complete after a delay
-    setTimeout(() => {
-      dispatch({
-        type: "SET_NODE_DATA",
-        nodeId: trimmed,
-        data: {
-          isLoading: false,
-          balance: 1_500_000_000,
-          programName: "System Program",
-          programId: "11111111111111111111111111111111",
-        },
-      });
-    }, 1000);
-  }, [address, dispatch]);
+    const existingIds = new Set(state.nodes.map((n) => n.id));
+    existingIds.add(trimmed);
+    expandAccount(trimmed, position, rpcEndpoint, existingIds, dispatch, {
+      onIdlFetched: (programId, idl) => {
+        const entry: ProgramEntry = {
+          programId,
+          programName: idl.metadata?.name ?? programId,
+          idlFetchedAt: Date.now(),
+          idl,
+        };
+        saveProgram(entry);
+      },
+    });
+  }, [address, dispatch, rpcEndpoint, state.nodes, saveProgram]);
 
   return (
     <div className="flex items-center gap-2 p-3 border-b bg-background">

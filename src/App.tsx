@@ -4,6 +4,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { GraphCanvas } from "@/components/GraphCanvas";
 import { NodeDetailPanel } from "@/components/NodeDetailPanel";
 import { RelationshipEditor } from "@/components/RelationshipEditor";
+import { ProgramBrowser } from "@/components/ProgramBrowser";
 
 function App() {
   return (
@@ -12,7 +13,8 @@ function App() {
         <div className="h-screen w-screen flex flex-col">
           <header className="flex items-center gap-2 shrink-0">
             <SearchBar />
-            <div className="pr-3">
+            <div className="flex items-center gap-2 pr-3">
+              <ProgramBrowser />
               <RelationshipEditor />
             </div>
           </header>
