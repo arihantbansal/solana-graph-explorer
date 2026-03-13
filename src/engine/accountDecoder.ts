@@ -176,7 +176,7 @@ export function identifyAccountType(
 
   for (const account of idl.accounts) {
     const disc = account.discriminator;
-    if (disc.length !== 8) continue;
+    if (!disc || disc.length !== 8) continue;
 
     let match = true;
     for (let i = 0; i < 8; i++) {
