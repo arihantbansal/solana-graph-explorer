@@ -8,7 +8,7 @@ import { useExploreAddress } from "@/hooks/useExploreAddress";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { PdaRuleCreator } from "@/components/PdaRuleCreator";
 import { BytesFieldDisplay } from "@/components/BytesFieldDisplay";
-import { X, GitBranchPlus, ChevronsDownUp, ChevronsUpDown, EyeOff, Eye } from "lucide-react";
+import { X, GitBranchPlus, ChevronsDownUp, ChevronsUpDown, EyeOff, Eye, ChevronRight } from "lucide-react";
 import { CopyButton } from "@/components/CopyButton";
 import { TransactionHistory } from "@/components/TransactionHistory";
 import { useView } from "@/contexts/ViewContext";
@@ -17,6 +17,108 @@ import { expandAccount } from "@/engine/expandAccount";
 import type { NodeRect } from "@/utils/layout";
 import { isPubkey, lamportsToSol } from "@/utils/format";
 import { makeIdlFetchedHandler } from "@/utils/programSaver";
+
+/** Recursively render decoded field values — nested objects/arrays shown inline with indentation */
+function DecodedValue({
+  value,
+  depth = 0,
+  exploreAddress,
+  sourceNodeId,
+  fieldName,
+}: {
+  value: unknown;
+  depth?: number;
+  exploreAddress: (address: string, meta: { sourceNodeId: string; fieldName: string; depth: number }) => void;
+  sourceNodeId: string;
+  fieldName: string;
+}) {
+  if (value === null || value === undefined) {
+    return <span className="text-muted-foreground italic">null</span>;
+  }
+
+  if (isPubkey(value)) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <button
+          onClick={() => exploreAddress(value as string, { sourceNodeId, fieldName, depth: 0 })}
+          className="text-blue-500 hover:underline cursor-pointer"
+          title={`Explore ${value}`}
+        >
+          {value as string}
+        </button>
+        <CopyButton value={value as string} iconSize="size-2.5" />
+      </span>
+    );
+  }
+
+  if (typeof value === "bigint") {
+    return <span>{value.toString()}</span>;
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="text-muted-foreground italic">[]</span>;
+    // If all items are primitives, render compact
+    const allPrimitive = value.every((v) => typeof v !== "object" || v === null);
+    if (allPrimitive) {
+      return (
+        <div className="space-y-0.5">
+          {value.map((item, i) => (
+            <div key={i} className="flex items-baseline gap-2">
+              <span className="text-muted-foreground/50 text-[10px] select-none">{i}</span>
+              <DecodedValue value={item} depth={depth + 1} exploreAddress={exploreAddress} sourceNodeId={sourceNodeId} fieldName={`${fieldName}[${i}]`} />
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-1.5">
+        {value.map((item, i) => (
+          <div key={i} className="border border-muted/40 rounded px-2 py-1.5">
+            <div className="text-[10px] text-muted-foreground/60 mb-1">#{i}</div>
+            <DecodedValue value={item} depth={depth + 1} exploreAddress={exploreAddress} sourceNodeId={sourceNodeId} fieldName={`${fieldName}[${i}]`} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return <span className="text-muted-foreground italic">{"{}"}</span>;
+    return (
+      <div className="space-y-0.5">
+        {entries.map(([k, v]) => {
+          const isNested = typeof v === "object" && v !== null && !(v instanceof Uint8Array);
+          return (
+            <div key={k} className="py-0.5">
+              {isNested ? (
+                <div>
+                  <div className="flex items-center gap-1 text-muted-foreground">
+                    <ChevronRight className="size-3" />
+                    <span className="text-xs">{k}</span>
+                  </div>
+                  <div className="ml-4 mt-0.5">
+                    <DecodedValue value={v} depth={depth + 1} exploreAddress={exploreAddress} sourceNodeId={sourceNodeId} fieldName={`${fieldName}.${k}`} />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-baseline justify-between gap-3 text-xs">
+                  <span className="text-muted-foreground whitespace-nowrap">{k}</span>
+                  <span className="font-mono text-right break-all">
+                    <DecodedValue value={v} depth={depth + 1} exploreAddress={exploreAddress} sourceNodeId={sourceNodeId} fieldName={`${fieldName}.${k}`} />
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return <span>{String(value)}</span>;
+}
 
 const MIN_WIDTH = 320;
 const DEFAULT_WIDTH = 420;
@@ -197,26 +299,48 @@ export function NodeDetailPanel() {
                 Decoded Fields
               </h4>
               <div className="space-y-0.5">
-                {decodedEntries.map(([key, value]) =>
-                  value instanceof Uint8Array ? (
-                    <div key={key} className="py-1.5 border-b border-muted/30 last:border-0">
-                      <div className="text-xs text-muted-foreground mb-1">{key}</div>
-                      <BytesFieldDisplay
-                        bytes={value}
-                        fieldName={key}
-                        defaultEncoding={
-                          selectedNode.data.accountType
-                            ? getBytesEncoding(selectedNode.data.accountType, key)
-                            : undefined
-                        }
-                        onEncodingChange={(enc) => {
-                          if (selectedNode.data.accountType) {
-                            setBytesEncoding(selectedNode.data.accountType, key, enc);
+                {decodedEntries.map(([key, value]) => {
+                  if (value instanceof Uint8Array) {
+                    return (
+                      <div key={key} className="py-1.5 border-b border-muted/30 last:border-0">
+                        <div className="text-xs text-muted-foreground mb-1">{key}</div>
+                        <BytesFieldDisplay
+                          bytes={value}
+                          fieldName={key}
+                          defaultEncoding={
+                            selectedNode.data.accountType
+                              ? getBytesEncoding(selectedNode.data.accountType, key)
+                              : undefined
                           }
-                        }}
-                      />
-                    </div>
-                  ) : (
+                          onEncodingChange={(enc) => {
+                            if (selectedNode.data.accountType) {
+                              setBytesEncoding(selectedNode.data.accountType, key, enc);
+                            }
+                          }}
+                        />
+                      </div>
+                    );
+                  }
+                  const isNested = typeof value === "object" && value !== null;
+                  if (isNested) {
+                    return (
+                      <div key={key} className="py-1.5 border-b border-muted/30 last:border-0">
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                          <ChevronRight className="size-3" />
+                          <span>{key}</span>
+                        </div>
+                        <div className="ml-4 text-xs font-mono">
+                          <DecodedValue
+                            value={value}
+                            exploreAddress={exploreAddress}
+                            sourceNodeId={selectedNode.id}
+                            fieldName={key}
+                          />
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
                     <div
                       key={key}
                       className="flex items-baseline justify-between gap-3 py-1 border-b border-muted/30 last:border-0 text-xs"
@@ -225,34 +349,16 @@ export function NodeDetailPanel() {
                         {key}
                       </span>
                       <span className="font-mono text-right break-all">
-                        {isPubkey(value) ? (
-                          <span className="inline-flex items-center gap-1">
-                            <button
-                              onClick={() =>
-                                exploreAddress(value, {
-                                  sourceNodeId: selectedNode.id,
-                                  fieldName: key,
-                                  depth: 0,
-                                })
-                              }
-                              className="text-blue-500 hover:underline cursor-pointer"
-                              title={`Explore ${value}`}
-                            >
-                              {value}
-                            </button>
-                            <CopyButton value={value} iconSize="size-2.5" />
-                          </span>
-                        ) : typeof value === "object" && value !== null ? (
-                          JSON.stringify(value, (_, v) =>
-                            typeof v === "bigint" ? v.toString() : v,
-                          ).slice(0, 60)
-                        ) : (
-                          String(value)
-                        )}
+                        <DecodedValue
+                          value={value}
+                          exploreAddress={exploreAddress}
+                          sourceNodeId={selectedNode.id}
+                          fieldName={key}
+                        />
                       </span>
                     </div>
-                  ),
-                )}
+                  );
+                })}
               </div>
             </div>
           )}
