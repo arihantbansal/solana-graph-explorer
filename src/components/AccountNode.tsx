@@ -39,7 +39,7 @@ function formatFieldValue(value: unknown): string {
   return String(value);
 }
 
-export function AccountNodeComponent({ data }: NodeProps<AccountNodeType>) {
+export function AccountNodeComponent({ id: nodeId, data }: NodeProps<AccountNodeType>) {
   const {
     address,
     accountType,
@@ -90,6 +90,12 @@ export function AccountNodeComponent({ data }: NodeProps<AccountNodeType>) {
     [dispatch, address],
   );
 
+  // IDL instruction metadata (set by instructionGraphBuilder for tx view nodes)
+  const ixAccountLabel = data.ixAccountLabel as string | undefined;
+  const isSigner = data.isSigner as boolean | undefined;
+  const isWritable = data.isWritable as boolean | undefined;
+  const pdaSeeds = data.pdaSeeds as string | undefined;
+
   const hue = programId ? hashToHue(programId) : 200;
   const borderColor = `hsl(${hue}, 70%, 50%)`;
 
@@ -109,9 +115,9 @@ export function AccountNodeComponent({ data }: NodeProps<AccountNodeType>) {
     (e: React.MouseEvent, key: string, value: unknown) => {
       if (!isPubkey(value)) return;
       e.stopPropagation();
-      exploreAddress(value, { sourceNodeId: address, fieldName: key, depth: 0 });
+      exploreAddress(value, { sourceNodeId: nodeId, fieldName: key, depth: 0 });
     },
-    [exploreAddress, address],
+    [exploreAddress, nodeId],
   );
 
   return (
@@ -126,7 +132,7 @@ export function AccountNodeComponent({ data }: NodeProps<AccountNodeType>) {
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="text-muted-foreground hover:text-blue-500"
+          className="text-muted-foreground hover:text-blue-500 cursor-pointer"
           title="View in Explorer"
         >
           <ExternalLink className="size-3" />
@@ -187,6 +193,18 @@ export function AccountNodeComponent({ data }: NodeProps<AccountNodeType>) {
           )}
         </div>
 
+        {/* IDL account name (from instruction definition) */}
+        {ixAccountLabel && (
+          <div className="text-xs font-semibold text-foreground/80 truncate">
+            {ixAccountLabel}
+          </div>
+        )}
+        {pdaSeeds && (
+          <div className="text-[9px] text-muted-foreground/70 font-mono truncate" title={`PDA seeds: ${pdaSeeds}`}>
+            PDA: [{pdaSeeds}]
+          </div>
+        )}
+
         {/* Thumbnail for NFTs/assets */}
         {thumbnail && (
           <img
@@ -196,12 +214,26 @@ export function AccountNodeComponent({ data }: NodeProps<AccountNodeType>) {
           />
         )}
 
-        {/* Type badge */}
-        {accountType && accountType !== "Unknown" && (
-          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-            {accountType}
-          </Badge>
-        )}
+        {/* Type badge + IDL signer/writable badges */}
+        {(accountType && accountType !== "Unknown") || isSigner || isWritable ? (
+          <div className="flex gap-1 flex-wrap">
+            {accountType && accountType !== "Unknown" && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                {accountType}
+              </Badge>
+            )}
+            {isSigner && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/50 text-amber-600">
+                Signer
+              </Badge>
+            )}
+            {isWritable && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-orange-500/50 text-orange-600">
+                Writable
+              </Badge>
+            )}
+          </div>
+        ) : null}
 
         {/* Program name */}
         {programName && (
@@ -226,7 +258,7 @@ export function AccountNodeComponent({ data }: NodeProps<AccountNodeType>) {
                 {isPubkey(value) ? (
                   <button
                     onClick={(e) => handleFieldClick(e, key, value)}
-                    className="font-mono truncate text-right text-blue-500 hover:underline"
+                    className="font-mono truncate text-right text-blue-500 hover:underline cursor-pointer"
                     title={`Explore ${value}`}
                   >
                     {getLabel(value) ?? formatFieldValue(value)}
@@ -252,7 +284,7 @@ export function AccountNodeComponent({ data }: NodeProps<AccountNodeType>) {
             {hiddenCount > 0 && (
               <button
                 onClick={toggleFields}
-                className="text-[10px] text-blue-500 hover:underline w-full text-left"
+                className="text-[10px] text-blue-500 hover:underline w-full text-left cursor-pointer"
               >
                 {showAllFields
                   ? "Show less"

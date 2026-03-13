@@ -1,13 +1,15 @@
-import { useRef, useCallback, useState } from "react";
+import { useRef, useCallback, useState, useEffect } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { GraphProvider } from "@/contexts/GraphContext";
 import { SettingsProvider, useSettings } from "@/contexts/SettingsContext";
+import { ViewProvider, useView } from "@/contexts/ViewContext";
 import { SearchBar, DepthControl, RpcSelector } from "@/components/SearchBar";
 import { GraphCanvas } from "@/components/GraphCanvas";
 import { NodeDetailPanel } from "@/components/NodeDetailPanel";
 import { RelationshipEditor } from "@/components/RelationshipEditor";
 import { ProgramBrowser } from "@/components/ProgramBrowser";
 import { PdaSearch } from "@/components/PdaSearch";
+import { TransactionView } from "@/components/TransactionView";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useRelationshipRules } from "@/hooks/useRelationshipRules";
@@ -78,6 +80,22 @@ function SettingsIO() {
 function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const isSm = useMediaQuery("(max-width: 767px)");
+  const { state: viewState, dispatch: viewDispatch, backToGraph } = useView();
+
+  // Handle browser back/forward button for view switching
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const txParam = params.get("tx");
+      if (txParam && viewState.mode !== "transaction") {
+        viewDispatch({ type: "OPEN_TRANSACTION", signature: txParam });
+      } else if (!txParam && viewState.mode === "transaction") {
+        viewDispatch({ type: "BACK_TO_GRAPH" });
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [viewState.mode, viewDispatch, backToGraph]);
 
   return (
     <div className="h-screen w-screen flex flex-col">
@@ -105,12 +123,16 @@ function AppLayout() {
           </Button>
         </div>
       </header>
-      <div className="flex-1 flex min-h-0">
-        <main className="flex-1 relative min-w-0">
-          <GraphCanvas />
-        </main>
-        <NodeDetailPanel />
-      </div>
+      {viewState.mode === "transaction" ? (
+        <TransactionView />
+      ) : (
+        <div className="flex-1 flex min-h-0">
+          <main className="flex-1 relative min-w-0">
+            <GraphCanvas />
+          </main>
+          <NodeDetailPanel />
+        </div>
+      )}
       <RelationshipRuleEngine />
 
       {/* Hamburger slide-in menu */}
@@ -160,9 +182,11 @@ function App() {
   return (
     <SettingsProvider>
       <GraphProvider>
-        <ReactFlowProvider>
-          <AppLayout />
-        </ReactFlowProvider>
+        <ViewProvider>
+          <ReactFlowProvider>
+            <AppLayout />
+          </ReactFlowProvider>
+        </ViewProvider>
       </GraphProvider>
     </SettingsProvider>
   );

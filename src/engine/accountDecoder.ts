@@ -193,7 +193,7 @@ export function identifyAccountType(
 
 // --- Field reader ---
 
-function readField(
+export function readField(
   reader: BorshReader,
   type: IdlType,
   idl: Idl,
@@ -353,6 +353,22 @@ function decodeStruct(
 }
 
 // --- Public API ---
+
+/**
+ * Decode a list of fields from a BorshReader.
+ * Used by both account decoding and instruction arg decoding.
+ */
+export function decodeFields(
+  reader: BorshReader,
+  fields: { name: string; type: IdlType }[],
+  idl: Idl,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const field of fields) {
+    result[field.name] = readField(reader, field.type, idl);
+  }
+  return result;
+}
 
 /**
  * Decode account data given a type definition and IDL.

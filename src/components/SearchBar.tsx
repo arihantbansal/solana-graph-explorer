@@ -12,13 +12,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSettings, RPC_OPTIONS, type RpcEndpointKey } from "@/contexts/SettingsContext";
+import { useView } from "@/contexts/ViewContext";
 import { Search, Bookmark, Minus, Plus } from "lucide-react";
 import { base58AddressSchema } from "@/utils/validation";
-import { shortenAddress } from "@/utils/format";
+import { shortenAddress, isTxSignature } from "@/utils/format";
 import { useClearAndExplore } from "@/hooks/useClearAndExplore";
 
+// Accept both addresses and transaction signatures
 const searchSchema = z.object({
-  address: base58AddressSchema,
+  address: z
+    .string()
+    .trim()
+    .min(1, "Enter an address or transaction signature")
+    .regex(/^[1-9A-HJ-NP-Za-km-z]{32,90}$/, "Invalid Solana address or transaction signature"),
 });
 
 type SearchForm = z.infer<typeof searchSchema>;
@@ -85,15 +91,19 @@ export function RpcSelector() {
 }
 
 export function SearchBar() {
+  const params = new URLSearchParams(window.location.search);
+  const initialInput = params.get("address") ?? params.get("tx") ?? "";
+
   const form = useForm<SearchForm>({
     resolver: zodResolver(searchSchema),
     defaultValues: {
-      address: new URLSearchParams(window.location.search).get("address") ?? "",
+      address: initialInput,
     },
   });
 
   const [showLabels, setShowLabels] = useState(false);
   const { addressLabels } = useSettings();
+  const { openTransaction } = useView();
   const clearAndExplore = useClearAndExplore();
   const hasAutoExplored = useRef(false);
   const labelsRef = useRef<HTMLDivElement>(null);
@@ -102,17 +112,32 @@ export function SearchBar() {
 
   const handleExplore = useCallback(
     (data: SearchForm) => {
-      clearAndExplore(data.address.trim());
+      const input = data.address.trim();
+      if (isTxSignature(input)) {
+        openTransaction(input);
+      } else {
+        clearAndExplore(input);
+      }
     },
-    [clearAndExplore],
+    [clearAndExplore, openTransaction],
   );
 
-  // Auto-explore on mount if URL has an address (don't open side panel)
+  // Auto-explore on mount if URL has an address or tx signature
   useEffect(() => {
-    const addr = form.getValues("address");
-    if (!hasAutoExplored.current && addr && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr.trim())) {
+    if (hasAutoExplored.current) return;
+
+    // Check for tx param first
+    const txParam = new URLSearchParams(window.location.search).get("tx");
+    if (txParam && isTxSignature(txParam.trim())) {
       hasAutoExplored.current = true;
-      clearAndExplore(addr.trim(), { skipSelect: true });
+      openTransaction(txParam.trim());
+      return;
+    }
+
+    const addr = form.getValues("address");
+    if (addr && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr.trim())) {
+      hasAutoExplored.current = true;
+      clearAndExplore(addr.trim());
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -135,7 +160,7 @@ export function SearchBar() {
       <div className="flex items-center gap-2 flex-1 max-w-2xl">
         <div className="flex-1 relative">
           <Input
-            placeholder="Enter Solana address..."
+            placeholder="Enter Solana address or tx signature..."
             {...form.register("address")}
             onKeyDown={(e) => {
               if (e.key === "Enter") {

@@ -63,6 +63,8 @@ export interface IdlInstructionAccountDef {
   pda?: IdlPda;
   relations?: string[];
   docs?: string[];
+  /** Nested accounts struct (e.g. "common" containing multiple accounts) */
+  accounts?: IdlInstructionAccountDef[];
 }
 
 export interface IdlPda {

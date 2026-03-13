@@ -10,6 +10,9 @@ import { PdaRuleCreator } from "@/components/PdaRuleCreator";
 import { BytesFieldDisplay } from "@/components/BytesFieldDisplay";
 import { X, GitBranchPlus, ChevronsDownUp, ChevronsUpDown, EyeOff, Eye } from "lucide-react";
 import { CopyButton } from "@/components/CopyButton";
+import { TransactionHistory } from "@/components/TransactionHistory";
+import { useView } from "@/contexts/ViewContext";
+import { useClearAndExplore } from "@/hooks/useClearAndExplore";
 import { expandAccount } from "@/engine/expandAccount";
 import type { NodeRect } from "@/utils/layout";
 import { isPubkey, lamportsToSol } from "@/utils/format";
@@ -23,6 +26,8 @@ export function NodeDetailPanel() {
   const { state, dispatch, selectedNode, getNodeEdges } = useGraph();
   const { rpcEndpoint, savedPrograms, saveProgram, collapsedAddresses, getBytesEncoding, setBytesEncoding, isCollapsedAddress, addCollapsedAddress, removeCollapsedAddress } = useSettings();
   const exploreAddress = useExploreAddress();
+  const { state: viewState, openTransaction } = useView();
+  const clearAndExplore = useClearAndExplore();
   const isMobile = useMediaQuery("(max-width: 1023px)");
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [pdaRuleOpen, setPdaRuleOpen] = useState(false);
@@ -87,9 +92,19 @@ export function NodeDetailPanel() {
 
         <div className="px-4 pb-2">
           <div className="flex items-start gap-1">
-            <div className="font-mono text-xs text-muted-foreground break-all">
-              {selectedNode.data.address}
-            </div>
+            {viewState.mode === "transaction" ? (
+              <button
+                onClick={() => clearAndExplore(selectedNode.data.address)}
+                className="font-mono text-xs text-blue-500 hover:underline break-all text-left cursor-pointer"
+                title="Explore this account"
+              >
+                {selectedNode.data.address}
+              </button>
+            ) : (
+              <div className="font-mono text-xs text-muted-foreground break-all">
+                {selectedNode.data.address}
+              </div>
+            )}
             <CopyButton value={selectedNode.data.address} />
           </div>
         </div>
@@ -193,7 +208,7 @@ export function NodeDetailPanel() {
                                   depth: 0,
                                 })
                               }
-                              className="text-blue-500 hover:underline"
+                              className="text-blue-500 hover:underline cursor-pointer"
                               title={`Explore ${value}`}
                             >
                               {value}
@@ -214,6 +229,15 @@ export function NodeDetailPanel() {
               </div>
             </div>
           )}
+
+          {/* Transaction History */}
+          <TransactionHistory
+            address={selectedNode.data.address}
+            rpcUrl={rpcEndpoint}
+            onTransactionClick={(sig) => {
+              openTransaction(sig);
+            }}
+          />
 
           {/* Connected Edges */}
           {edges.length > 0 && (

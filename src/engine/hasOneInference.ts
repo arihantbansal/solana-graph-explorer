@@ -1,16 +1,8 @@
 import type { HasOneRelationship } from "@/types/relationships";
 import type { IdlTypeDef, IdlType, Idl } from "@/types/idl";
+import { WELL_KNOWN_PROGRAM_IDS } from "@/utils/wellKnownPrograms";
 
 const ZERO_ADDRESS = "11111111111111111111111111111111";
-
-const WELL_KNOWN_PROGRAM_IDS = new Set([
-  ZERO_ADDRESS,                                     // System Program
-  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  // Token Program
-  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  // Token-2022
-  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", // Associated Token Account
-  "SysvarRent111111111111111111111111111111111",    // Rent Sysvar
-  "SysvarC1ock11111111111111111111111111111111",    // Clock Sysvar
-]);
 
 export function isPubkeyType(type: IdlType): boolean {
   return type === "pubkey" || type === "publicKey";
@@ -54,4 +46,4 @@ export function inferHasOneRelationships(
   return relationships;
 }
 
-export { WELL_KNOWN_PROGRAM_IDS, ZERO_ADDRESS };
+export { ZERO_ADDRESS };

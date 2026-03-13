@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   inferHasOneRelationships,
-  WELL_KNOWN_PROGRAM_IDS,
   ZERO_ADDRESS,
 } from "@/engine/hasOneInference";
+import { WELL_KNOWN_PROGRAM_IDS } from "@/utils/wellKnownPrograms";
 import type { IdlTypeDef, Idl } from "@/types/idl";
 
 const SOURCE = "SourceAddr1111111111111111111111111111111111";

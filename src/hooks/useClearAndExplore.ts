@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useReactFlow } from "@xyflow/react";
 import { useGraph } from "@/contexts/GraphContext";
 import { useSettings } from "@/contexts/SettingsContext";
+import { useView } from "@/contexts/ViewContext";
 import { expandAccount } from "@/engine/expandAccount";
 import { makeIdlFetchedHandler } from "@/utils/programSaver";
 import type { AccountNode } from "@/types/graph";
@@ -15,12 +16,14 @@ export function useClearAndExplore() {
   const { dispatch } = useGraph();
   const { rpcEndpoint, saveProgram, collapsedAddresses, expansionDepth } =
     useSettings();
+  const { state: viewState, backToGraph } = useView();
   const { fitView } = useReactFlow();
 
-  return useCallback(
+  const doExplore = useCallback(
     (address: string, opts?: { skipSelect?: boolean }) => {
       // Update URL
       const url = new URL(window.location.href);
+      url.searchParams.delete("tx");
       url.searchParams.set("address", address);
       window.history.replaceState({}, "", url.toString());
 
@@ -62,5 +65,22 @@ export function useClearAndExplore() {
       });
     },
     [dispatch, rpcEndpoint, saveProgram, fitView, expansionDepth, collapsedAddresses],
+  );
+
+  return useCallback(
+    (address: string, opts?: { skipSelect?: boolean }) => {
+      if (viewState.mode === "transaction") {
+        // Switch back to graph mode first. The graph canvas remounts via
+        // ternary in App.tsx, so we need to wait for it to be in the DOM
+        // before dispatching graph operations.
+        backToGraph();
+        setTimeout(() => {
+          doExplore(address, opts);
+        }, 50);
+      } else {
+        doExplore(address, opts);
+      }
+    },
+    [viewState.mode, backToGraph, doExplore],
   );
 }
