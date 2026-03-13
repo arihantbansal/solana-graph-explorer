@@ -346,6 +346,7 @@ export function buildInstructionGraphs(
         height: clusterHeight,
       },
       data: { label, instructionDetail },
+      draggable: false,
     };
     clusterNodes.push(clusterNode);
 
