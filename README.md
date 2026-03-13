@@ -6,7 +6,7 @@ An interactive visual explorer for Solana blockchain accounts and their relation
 >
 > `noahyVQnQDw5w73eB6AAFs5J7evyqhcB3MCcRF3X7sg`
 >
-> I don't expect tips, but someone asked if they could. This is just for myself. Money will go towards beer and Claude tokens.
+> I don't expect tips, but someone asked if they could. I just built this for the love of the game, and for the hate of using other explorers to debug. Money will go towards beer and Claude tokens.
 
 ## What It Does
 
