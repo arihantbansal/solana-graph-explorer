@@ -270,15 +270,18 @@ export interface ExpandOptions {
   _preloadedResult?: FetchDecodeResult;
 }
 
-export async function expandAccount(
-  address: string,
-  sourcePosition: { x: number; y: number },
-  rpcUrl: string,
-  existingNodeIds: Set<string>,
-  dispatch: Dispatch<GraphAction>,
-  options?: ExpandOptions,
-  existingRects?: NodeRect[],
-): Promise<void> {
+export interface ExpandAccountParams {
+  address: string;
+  sourcePosition: { x: number; y: number };
+  rpcUrl: string;
+  existingNodeIds: Set<string>;
+  dispatch: Dispatch<GraphAction>;
+  options?: ExpandOptions;
+  existingRects?: NodeRect[];
+}
+
+export async function expandAccount(params: ExpandAccountParams): Promise<void> {
+  const { address, sourcePosition, rpcUrl, existingNodeIds, dispatch, options, existingRects } = params;
   const depth = options?.depth ?? 1;
 
   // depth=0 means just load, don't expand relationships
@@ -427,15 +430,15 @@ export async function expandAccount(
     if (remainingDepth > 0 && childResult.decodedData) {
       // Recursively expand, passing the pre-loaded data to avoid redundant RPC call
       expandPromises.push(
-        expandAccount(
-          node.id,
-          node.position,
+        expandAccount({
+          address: node.id,
+          sourcePosition: node.position,
           rpcUrl,
-          new Set([...existingNodeIds, ...keptNodes.map((n) => n.id)]),
+          existingNodeIds: new Set([...existingNodeIds, ...keptNodes.map((n) => n.id)]),
           dispatch,
-          { ...options, depth: remainingDepth, _preloadedResult: childResult },
+          options: { ...options, depth: remainingDepth, _preloadedResult: childResult },
           existingRects,
-        ),
+        }),
       );
     } else {
       // Leaf node — just apply the already-fetched data

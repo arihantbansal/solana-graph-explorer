@@ -17,7 +17,7 @@ import {
   getProgramDerivedAddress,
   address,
 } from "@solana/kit";
-import type { PdaDefinition, SeedInputValue } from "@/types/pdaExplorer";
+import type { ProgramEntry, PdaDefinition, SeedInputValue } from "@/types/pdaExplorer";
 import { Loader2, Search } from "lucide-react";
 import { makeIdlFetchedHandler } from "@/utils/programSaver";
 
@@ -110,8 +110,15 @@ export function PdaExplorer({ program }: PdaExplorerProps) {
       dispatch({ type: "SELECT_NODE", nodeId: derived });
 
       existingIds.add(derived);
-      await expandAccount(derived, position, rpcEndpoint, existingIds, dispatch, {
-        onIdlFetched: makeIdlFetchedHandler(saveProgram),
+      await expandAccount({
+        address: derived,
+        sourcePosition: position,
+        rpcUrl: rpcEndpoint,
+        existingNodeIds: existingIds,
+        dispatch,
+        options: {
+          onIdlFetched: makeIdlFetchedHandler(saveProgram),
+        },
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to derive PDA");

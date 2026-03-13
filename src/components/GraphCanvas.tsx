@@ -136,19 +136,19 @@ export function GraphCanvas() {
         width: n.measured?.width ?? 280,
         height: n.measured?.height ?? 500,
       }));
-      expandAccount(
-        node.id,
-        node.position,
-        rpcEndpoint,
-        existingIds,
+      expandAccount({
+        address: node.id,
+        sourcePosition: node.position,
+        rpcUrl: rpcEndpoint,
+        existingNodeIds: existingIds,
         dispatch,
-        {
+        options: {
           onIdlFetched: makeIdlFetchedHandler(saveProgram),
           collapsedAddresses: new Set(collapsedAddresses),
           depth: expansionDepth,
         },
         existingRects,
-      );
+      });
     },
     [state.nodes, rpcEndpoint, dispatch, saveProgram, collapsedAddresses, expansionDepth],
   );

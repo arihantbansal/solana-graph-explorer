@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useReactFlow } from "@xyflow/react";
 import {
   Popover,
   PopoverContent,
@@ -25,18 +24,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useGraph } from "@/contexts/GraphContext";
+import { AddressLabelPicker } from "@/components/AddressLabelPicker";
 import { useSettings } from "@/contexts/SettingsContext";
 import { extractPdaDefinitions, buildSeedBuffers } from "@/engine/pdaDeriver";
-import { expandAccount } from "@/engine/expandAccount";
 import { getProgramDerivedAddress, address } from "@solana/kit";
 import type {
   SeedInputValue,
   BufferEncoding,
-  SeedTransform,
   SavedPdaSearch,
   SavedSeedValue,
-  CustomSeedState,
   CustomSeedType,
 } from "@/types/pdaExplorer";
 import {
@@ -46,7 +42,6 @@ import {
   customSeedToIdlSeed,
 } from "@/types/pdaExplorer";
 import type { IdlSeed } from "@/types/idl";
-import type { AccountNode } from "@/types/graph";
 import {
   Loader2,
   Search,
@@ -57,7 +52,8 @@ import {
   Plus,
 } from "lucide-react";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
-import { makeIdlFetchedHandler } from "@/utils/programSaver";
+import { useClearAndExplore } from "@/hooks/useClearAndExplore";
+import { shortenAddress } from "@/utils/format";
 
 // ─── Main Component: Dropdown + Dialog ───────────────────────────
 
@@ -129,10 +125,8 @@ function FavoriteSearchCard({
   favorite: SavedPdaSearch;
   onClose: () => void;
 }) {
-  const { dispatch } = useGraph();
-  const { rpcEndpoint, saveProgram, removePdaSearch, addressLabels } =
-    useSettings();
-  const { fitView } = useReactFlow();
+  const { removePdaSearch, addressLabels } = useSettings();
+  const clearAndExplore = useClearAndExplore();
 
   // Build field states for non-const seeds that aren't pre-filled
   const fillableSeeds = useMemo(() => {
@@ -199,44 +193,9 @@ function FavoriteSearchCard({
 
     if (!result) return;
 
-    const derivedAddress = result;
-
-    // Clear graph and explore
-    dispatch({ type: "CLEAR" });
-    const position = { x: 400, y: 300 };
-    const node: AccountNode = {
-      id: derivedAddress,
-      type: "account",
-      position,
-      data: { address: derivedAddress, isExpanded: false, isLoading: true },
-    };
-    dispatch({ type: "ADD_NODES", nodes: [node] });
-    dispatch({ type: "SELECT_NODE", nodeId: derivedAddress });
-
-    const url = new URL(window.location.href);
-    url.searchParams.set("address", derivedAddress);
-    window.history.replaceState({}, "", url.toString());
-
-    const existingIds = new Set([derivedAddress]);
-    expandAccount(
-      derivedAddress,
-      position,
-      rpcEndpoint,
-      existingIds,
-      dispatch,
-      {
-        onIdlFetched: makeIdlFetchedHandler(saveProgram),
-      },
-    ).then(() => {
-      requestAnimationFrame(() => {
-        fitView({ duration: 400, padding: 0.2, maxZoom: 1 });
-      });
-    });
-
+    clearAndExplore(result);
     onClose();
-  }, [favorite, form, dispatch, rpcEndpoint, saveProgram, fitView, onClose, asyncAction]);
-
-  const labelEntries = Object.entries(addressLabels);
+  }, [favorite, form, clearAndExplore, onClose, asyncAction]);
 
   return (
     <div className="p-3 space-y-2">
@@ -262,32 +221,13 @@ function FavoriteSearchCard({
           <label className="text-[10px] text-muted-foreground">
             {seed.path}
           </label>
-          {seed.kind === "account" && labelEntries.length > 0 && (
-            <Select
-              value={form.watch(String(index)) || "__none__"}
-              onValueChange={(v) => {
-                if (v !== "__none__") form.setValue(String(index), v);
-              }}
-            >
-              <SelectTrigger className="h-7 text-[10px]" size="sm">
-                <SelectValue placeholder="Saved address..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">
-                  <span className="text-xs italic text-muted-foreground">
-                    Enter manually...
-                  </span>
-                </SelectItem>
-                {labelEntries.map(([addr, lbl]) => (
-                  <SelectItem key={addr} value={addr}>
-                    <span className="text-xs">{lbl}</span>
-                    <span className="text-[10px] text-muted-foreground ml-1 font-mono">
-                      {addr.slice(0, 4)}...{addr.slice(-4)}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {seed.kind === "account" && (
+            <AddressLabelPicker
+              value={form.watch(String(index)) || ""}
+              onSelect={(addr) => form.setValue(String(index), addr)}
+              addressLabels={addressLabels}
+              className="h-7 text-[10px]"
+            />
           )}
           <Input
             placeholder={seed.kind === "account" ? "Public key..." : "Value..."}
@@ -363,17 +303,14 @@ function PdaSearchDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { dispatch } = useGraph();
   const {
     savedPrograms,
-    rpcEndpoint,
-    saveProgram,
     savedPdaSearches,
     addPdaSearch,
     removePdaSearch,
     addressLabels,
   } = useSettings();
-  const { fitView } = useReactFlow();
+  const clearAndExplore = useClearAndExplore();
 
   const form = useForm<DialogForm>({
     resolver: zodResolver(dialogFormSchema),
@@ -621,33 +558,9 @@ function PdaSearchDialog({
 
   const handleExplore = useCallback(async () => {
     if (!derivedAddress) return;
-
-    dispatch({ type: "CLEAR" });
-    const position = { x: 400, y: 300 };
-    const node: AccountNode = {
-      id: derivedAddress,
-      type: "account",
-      position,
-      data: { address: derivedAddress, isExpanded: false, isLoading: true },
-    };
-    dispatch({ type: "ADD_NODES", nodes: [node] });
-    dispatch({ type: "SELECT_NODE", nodeId: derivedAddress });
-
-    const url = new URL(window.location.href);
-    url.searchParams.set("address", derivedAddress);
-    window.history.replaceState({}, "", url.toString());
-
-    const existingIds = new Set([derivedAddress]);
-    expandAccount(derivedAddress, position, rpcEndpoint, existingIds, dispatch, {
-      onIdlFetched: makeIdlFetchedHandler(saveProgram),
-    }).then(() => {
-      requestAnimationFrame(() => {
-        fitView({ duration: 400, padding: 0.2, maxZoom: 1 });
-      });
-    });
-
+    clearAndExplore(derivedAddress);
     onOpenChange(false);
-  }, [derivedAddress, dispatch, rpcEndpoint, saveProgram, fitView, onOpenChange]);
+  }, [derivedAddress, clearAndExplore, onOpenChange]);
 
   const handleSaveFavorite = useCallback(() => {
     const name = favoriteName.trim();
@@ -714,7 +627,6 @@ function PdaSearchDialog({
   }, [isFavoriteSaved, favoriteId, removePdaSearch, handleSaveFavorite]);
 
   const showSeedForm = isCustomPda || currentSeeds.length > 0;
-  const labelEntries = Object.entries(addressLabels);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -744,7 +656,7 @@ function PdaSearchDialog({
                   <SelectItem key={p.programId} value={p.programId}>
                     <span className="text-xs">{p.programName}</span>
                     <span className="text-[10px] text-muted-foreground ml-2 font-mono">
-                      {p.programId.slice(0, 8)}...
+                      {shortenAddress(p.programId, 8)}
                     </span>
                   </SelectItem>
                 ))}
@@ -861,33 +773,16 @@ function PdaSearchDialog({
                       className="text-xs"
                     />
                     <div className="flex gap-2">
-                      {cs.type === "pubkey" && labelEntries.length > 0 && (
-                        <Select
-                          value={cs.value || "__none__"}
-                          onValueChange={(v) => {
-                            if (v !== "__none__") {
-                              updateCustomSeedItem(i, { ...cs, value: v });
-                              deriveAction.reset();
-                            }
+                      {cs.type === "pubkey" && (
+                        <AddressLabelPicker
+                          value={cs.value}
+                          onSelect={(addr) => {
+                            updateCustomSeedItem(i, { ...cs, value: addr });
+                            deriveAction.reset();
                           }}
-                        >
-                          <SelectTrigger className="w-auto min-w-[140px]" size="sm">
-                            <SelectValue placeholder="Saved address..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__none__">
-                              <span className="text-xs text-muted-foreground italic">Enter manually...</span>
-                            </SelectItem>
-                            {labelEntries.map(([addr, lbl]) => (
-                              <SelectItem key={addr} value={addr}>
-                                <span className="text-xs">{lbl}</span>
-                                <span className="text-[10px] text-muted-foreground ml-1 font-mono">
-                                  {addr.slice(0, 4)}...{addr.slice(-4)}
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          addressLabels={addressLabels}
+                          className="w-auto min-w-[140px]"
+                        />
                       )}
                       <Input
                         placeholder={cs.type === "pubkey" ? "Public key (base58)..." : "Value..."}
@@ -994,34 +889,13 @@ function PdaSearchDialog({
                       </Badge>
                       {seed.path}
                     </label>
-                    {field.isAccount && labelEntries.length > 0 && (
-                      <Select
-                        value={field.value || "__none__"}
-                        onValueChange={(v) => {
-                          if (v !== "__none__") {
-                            updateSeedField(i, { value: v });
-                          }
-                        }}
-                      >
-                        <SelectTrigger size="sm">
-                          <SelectValue placeholder="Pick a saved address..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">
-                            <span className="text-xs text-muted-foreground italic">
-                              Enter manually...
-                            </span>
-                          </SelectItem>
-                          {labelEntries.map(([addr, lbl]) => (
-                            <SelectItem key={addr} value={addr}>
-                              <span className="text-xs">{lbl}</span>
-                              <span className="text-[10px] text-muted-foreground ml-2 font-mono">
-                                {addr.slice(0, 4)}...{addr.slice(-4)}
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                    {field.isAccount && (
+                      <AddressLabelPicker
+                        value={field.value}
+                        onSelect={(addr) => updateSeedField(i, { value: addr })}
+                        addressLabels={addressLabels}
+                        placeholder="Pick a saved address..."
+                      />
                     )}
                     <div className="flex gap-2">
                       <Input

@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { usePersistedState } from "@/hooks/usePersistedState";
 import type { PdaRelationshipRule } from "@/types/relationships";
 import type { ProgramEntry, SavedPdaSearch } from "@/types/pdaExplorer";
 import {
@@ -112,38 +113,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
   const [savedPrograms, setSavedPrograms] = useState<ProgramEntry[]>(loadSavedPrograms);
   const [addressLabels, setAddressLabelsState] = useState<AddressLabels>(loadAddressLabels);
-  const [bytesEncodings, setBytesEncodingsState] = useState<BytesEncodings>(() => {
-    try {
-      const raw = localStorage.getItem(BYTES_ENCODINGS_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  });
-  const [savedPdaSearches, setSavedPdaSearches] = useState<SavedPdaSearch[]>(() => {
-    try {
-      const raw = localStorage.getItem(PDA_SEARCHES_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [collapsedAddresses, setCollapsedAddresses] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem(COLLAPSED_ADDRESSES_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [expansionDepth, setExpansionDepthState] = useState<number>(() => {
-    try {
-      const raw = localStorage.getItem(EXPANSION_DEPTH_KEY);
-      return raw ? Number(JSON.parse(raw)) : DEFAULT_EXPANSION_DEPTH;
-    } catch {
-      return DEFAULT_EXPANSION_DEPTH;
-    }
-  });
+  const [bytesEncodings, setBytesEncodingsState] = usePersistedState<BytesEncodings>(BYTES_ENCODINGS_KEY, {});
+  const [savedPdaSearches, setSavedPdaSearches] = usePersistedState<SavedPdaSearch[]>(PDA_SEARCHES_KEY, []);
+  const [collapsedAddresses, setCollapsedAddresses] = usePersistedState<string[]>(COLLAPSED_ADDRESSES_KEY, []);
+  const [expansionDepth, setExpansionDepthState] = usePersistedState<number>(EXPANSION_DEPTH_KEY, DEFAULT_EXPANSION_DEPTH);
 
   const rpcEndpoint =
     rpcEndpointKey === "custom"
@@ -215,12 +188,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     (accountType: string, fieldName: string, encoding: BytesDisplayEncoding) => {
       setBytesEncodingsState((prev) => {
         const key = `${accountType}:${fieldName}`;
-        const next = { ...prev, [key]: encoding };
-        localStorage.setItem(BYTES_ENCODINGS_KEY, JSON.stringify(next));
-        return next;
+        return { ...prev, [key]: encoding };
       });
     },
-    [],
+    [setBytesEncodingsState],
   );
 
   const getBytesEncoding = useCallback(
@@ -230,37 +201,23 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const addPdaSearch = useCallback((search: SavedPdaSearch) => {
-    setSavedPdaSearches((prev) => {
-      const next = [...prev.filter((s) => s.id !== search.id), search];
-      localStorage.setItem(PDA_SEARCHES_KEY, JSON.stringify(next));
-      return next;
-    });
-  }, []);
+    setSavedPdaSearches((prev) => [...prev.filter((s) => s.id !== search.id), search]);
+  }, [setSavedPdaSearches]);
 
   const removePdaSearch = useCallback((id: string) => {
-    setSavedPdaSearches((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      localStorage.setItem(PDA_SEARCHES_KEY, JSON.stringify(next));
-      return next;
-    });
-  }, []);
+    setSavedPdaSearches((prev) => prev.filter((s) => s.id !== id));
+  }, [setSavedPdaSearches]);
 
   const addCollapsedAddress = useCallback((address: string) => {
     setCollapsedAddresses((prev) => {
       if (prev.includes(address)) return prev;
-      const next = [...prev, address];
-      localStorage.setItem(COLLAPSED_ADDRESSES_KEY, JSON.stringify(next));
-      return next;
+      return [...prev, address];
     });
-  }, []);
+  }, [setCollapsedAddresses]);
 
   const removeCollapsedAddress = useCallback((address: string) => {
-    setCollapsedAddresses((prev) => {
-      const next = prev.filter((a) => a !== address);
-      localStorage.setItem(COLLAPSED_ADDRESSES_KEY, JSON.stringify(next));
-      return next;
-    });
-  }, []);
+    setCollapsedAddresses((prev) => prev.filter((a) => a !== address));
+  }, [setCollapsedAddresses]);
 
   const isCollapsedAddress = useCallback(
     (address: string) => collapsedAddresses.includes(address),
@@ -268,10 +225,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const setExpansionDepth = useCallback((depth: number) => {
-    const clamped = Math.max(1, Math.min(5, depth));
-    setExpansionDepthState(clamped);
-    localStorage.setItem(EXPANSION_DEPTH_KEY, JSON.stringify(clamped));
-  }, []);
+    setExpansionDepthState(Math.max(1, Math.min(5, depth)));
+  }, [setExpansionDepthState]);
 
   const exportSettings = useCallback(() => {
     // Strip idl and idlFetchedAt from each program — only export identity
@@ -354,20 +309,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
     if (data.bytesEncodings && typeof data.bytesEncodings === "object") {
       setBytesEncodingsState(data.bytesEncodings);
-      localStorage.setItem(BYTES_ENCODINGS_KEY, JSON.stringify(data.bytesEncodings));
     }
     if (Array.isArray(data.savedPdaSearches)) {
       setSavedPdaSearches(data.savedPdaSearches);
-      localStorage.setItem(PDA_SEARCHES_KEY, JSON.stringify(data.savedPdaSearches));
     }
     if (Array.isArray(data.collapsedAddresses)) {
       setCollapsedAddresses(data.collapsedAddresses);
-      localStorage.setItem(COLLAPSED_ADDRESSES_KEY, JSON.stringify(data.collapsedAddresses));
     }
     if (typeof data.expansionDepth === "number") {
-      const clamped = Math.max(1, Math.min(5, data.expansionDepth));
-      setExpansionDepthState(clamped);
-      localStorage.setItem(EXPANSION_DEPTH_KEY, JSON.stringify(clamped));
+      setExpansionDepthState(Math.max(1, Math.min(5, data.expansionDepth)));
     }
   }, [rpcEndpointKey, customRpcUrl]);
 

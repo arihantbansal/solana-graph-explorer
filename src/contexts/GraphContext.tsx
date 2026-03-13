@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from "react";
+import { createContext, useContext, useReducer, useMemo, useCallback, type Dispatch, type ReactNode } from "react";
 import type { GraphState, GraphAction, AccountNode, AccountEdge } from "@/types/graph";
 
 const initialState: GraphState = {
@@ -96,12 +96,24 @@ const GraphContext = createContext<GraphContextValue | null>(null);
 export function GraphProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(graphReducer, initialState);
 
-  const selectedNode = state.nodes.find((n) => n.id === state.selectedNodeId);
-  const getNodeEdges = (nodeId: string) =>
-    state.edges.filter((e) => e.source === nodeId || e.target === nodeId);
+  const selectedNode = useMemo(
+    () => state.nodes.find((n) => n.id === state.selectedNodeId),
+    [state.nodes, state.selectedNodeId],
+  );
+
+  const getNodeEdges = useCallback(
+    (nodeId: string) =>
+      state.edges.filter((e) => e.source === nodeId || e.target === nodeId),
+    [state.edges],
+  );
+
+  const value = useMemo(
+    () => ({ state, dispatch, selectedNode, getNodeEdges }),
+    [state, dispatch, selectedNode, getNodeEdges],
+  );
 
   return (
-    <GraphContext.Provider value={{ state, dispatch, selectedNode, getNodeEdges }}>
+    <GraphContext.Provider value={value}>
       {children}
     </GraphContext.Provider>
   );

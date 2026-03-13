@@ -109,7 +109,7 @@ export function AccountNodeComponent({ data }: NodeProps<AccountNodeType>) {
     (e: React.MouseEvent, key: string, value: unknown) => {
       if (!isPubkey(value)) return;
       e.stopPropagation();
-      exploreAddress(value, { sourceNodeId: address, fieldName: key });
+      exploreAddress(value, { sourceNodeId: address, fieldName: key, depth: 0 });
     },
     [exploreAddress, address],
   );

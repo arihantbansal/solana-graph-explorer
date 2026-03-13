@@ -44,9 +44,9 @@ export function ColorLegend() {
         >
           <span className="font-medium">Legend</span>
           {collapsed ? (
-            <ChevronUp className="size-3.5" />
-          ) : (
             <ChevronDown className="size-3.5" />
+          ) : (
+            <ChevronUp className="size-3.5" />
           )}
         </button>
         {!collapsed && (

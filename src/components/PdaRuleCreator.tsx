@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AddressLabelPicker } from "@/components/AddressLabelPicker";
 import { useGraph } from "@/contexts/GraphContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { extractPdaDefinitions, buildSeedBuffers } from "@/engine/pdaDeriver";
@@ -31,7 +32,7 @@ import type { IdlSeed } from "@/types/idl";
 import type { PdaRelationshipRule, SeedMapping, SeedSource } from "@/types/relationships";
 import { Loader2, Search, Bookmark, FlaskConical, Plus, Trash2 } from "lucide-react";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
-import { isPubkey } from "@/utils/format";
+import { isPubkey, shortenAddress } from "@/utils/format";
 import { makeIdlFetchedHandler } from "@/utils/programSaver";
 
 interface PdaRuleCreatorProps {
@@ -61,7 +62,7 @@ const seedMappingSchema = z.object({
   fieldName: z.string(),
   constValue: z.string(),
   constEncoding: z.enum(["utf8", "hex", "base58", "base64"]),
-  customSeedType: z.enum(["string", "pubkey", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "bytes"]).optional(),
+  customSeedType: z.enum(["string", "pubkey", "bytes"]).optional(),
   customLabel: z.string().optional(),
   transform: z.enum(["sha256"]).optional(),
 });
@@ -424,8 +425,15 @@ export function PdaRuleCreator({
     dispatch({ type: "SELECT_NODE", nodeId: derivedAddress });
 
     existingIds.add(derivedAddress);
-    expandAccount(derivedAddress, position, rpcEndpoint, existingIds, dispatch, {
-      onIdlFetched: makeIdlFetchedHandler(saveProgram),
+    expandAccount({
+      address: derivedAddress,
+      sourcePosition: position,
+      rpcUrl: rpcEndpoint,
+      existingNodeIds: existingIds,
+      dispatch,
+      options: {
+        onIdlFetched: makeIdlFetchedHandler(saveProgram),
+      },
     });
 
     onOpenChange(false);
@@ -487,7 +495,7 @@ export function PdaRuleCreator({
                         <SelectItem key={p.programId} value={p.programId}>
                           <span className="text-xs">{p.programName}</span>
                           <span className="text-[10px] text-muted-foreground ml-2 font-mono">
-                            {p.programId.slice(0, 8)}...
+                            {shortenAddress(p.programId, 8)}
                           </span>
                         </SelectItem>
                       ))}
@@ -963,7 +971,7 @@ function SourcePicker({
         if (availableFields.some((f) => f.value === addr)) continue;
         sourceOptions.push({
           value: `bookmark:${addr}`,
-          label: `${lbl} (${addr.slice(0, 4)}...${addr.slice(-4)})`,
+          label: `${lbl} (${shortenAddress(addr)})`,
         });
       }
     }
@@ -1026,33 +1034,12 @@ function SourcePicker({
 
       {mapping.sourceKind === "const" && isAccountSeed && (
         <div className="space-y-1.5">
-          {Object.keys(addressLabels).length > 0 && (
-            <Select
-              value={mapping.constValue || "__none__"}
-              onValueChange={(v) => {
-                if (v !== "__none__") {
-                  onUpdate(index, { constValue: v, constEncoding: "base58" });
-                }
-              }}
-            >
-              <SelectTrigger size="sm">
-                <SelectValue placeholder="Pick a saved address..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">
-                  <span className="text-xs text-muted-foreground italic">Enter manually below...</span>
-                </SelectItem>
-                {Object.entries(addressLabels).map(([addr, lbl]) => (
-                  <SelectItem key={addr} value={addr}>
-                    <span className="text-xs">{lbl}</span>
-                    <span className="text-[10px] text-muted-foreground ml-2 font-mono">
-                      {addr.slice(0, 4)}...{addr.slice(-4)}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+          <AddressLabelPicker
+            value={mapping.constValue}
+            onSelect={(addr) => onUpdate(index, { constValue: addr, constEncoding: "base58" })}
+            addressLabels={addressLabels}
+            placeholder="Pick a saved address..."
+          />
           <Input
             placeholder="Public key (base58)..."
             value={mapping.constValue}

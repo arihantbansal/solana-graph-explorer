@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useReactFlow } from "@xyflow/react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,13 +12,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSettings, RPC_OPTIONS, type RpcEndpointKey } from "@/contexts/SettingsContext";
-import { useGraph } from "@/contexts/GraphContext";
-import type { AccountNode } from "@/types/graph";
 import { Search, Bookmark, Minus, Plus } from "lucide-react";
-import { expandAccount } from "@/engine/expandAccount";
 import { base58AddressSchema } from "@/utils/validation";
 import { shortenAddress } from "@/utils/format";
-import { makeIdlFetchedHandler } from "@/utils/programSaver";
+import { useClearAndExplore } from "@/hooks/useClearAndExplore";
 
 const searchSchema = z.object({
   address: base58AddressSchema,
@@ -97,10 +93,8 @@ export function SearchBar() {
   });
 
   const [showLabels, setShowLabels] = useState(false);
-  const { rpcEndpoint, saveProgram, addressLabels, expansionDepth, collapsedAddresses } =
-    useSettings();
-  const { state, dispatch } = useGraph();
-  const { fitView } = useReactFlow();
+  const { addressLabels } = useSettings();
+  const clearAndExplore = useClearAndExplore();
   const hasAutoExplored = useRef(false);
   const labelsRef = useRef<HTMLDivElement>(null);
 
@@ -108,50 +102,17 @@ export function SearchBar() {
 
   const handleExplore = useCallback(
     (data: SearchForm) => {
-      const trimmed = data.address.trim();
-
-      // Update URL
-      const url = new URL(window.location.href);
-      url.searchParams.set("address", trimmed);
-      window.history.replaceState({}, "", url.toString());
-
-      // Clear existing graph and start fresh
-      dispatch({ type: "CLEAR" });
-
-      const position = { x: 400, y: 300 };
-      const node: AccountNode = {
-        id: trimmed,
-        type: "account",
-        position,
-        data: {
-          address: trimmed,
-          isExpanded: false,
-          isLoading: true,
-        },
-      };
-      dispatch({ type: "ADD_NODES", nodes: [node] });
-
-      const existingIds = new Set([trimmed]);
-      expandAccount(trimmed, position, rpcEndpoint, existingIds, dispatch, {
-        onIdlFetched: makeIdlFetchedHandler(saveProgram),
-        collapsedAddresses: new Set(collapsedAddresses),
-        depth: expansionDepth,
-      }).then(() => {
-        // Fit viewport to show all nodes after expansion completes
-        requestAnimationFrame(() => {
-          fitView({ duration: 400, padding: 0.2, maxZoom: 1 });
-        });
-      });
+      clearAndExplore(data.address.trim());
     },
-    [dispatch, rpcEndpoint, saveProgram, fitView, expansionDepth, collapsedAddresses],
+    [clearAndExplore],
   );
 
-  // Auto-explore on mount if URL has an address
+  // Auto-explore on mount if URL has an address (don't open side panel)
   useEffect(() => {
     const addr = form.getValues("address");
     if (!hasAutoExplored.current && addr && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr.trim())) {
       hasAutoExplored.current = true;
-      handleExplore({ address: addr });
+      clearAndExplore(addr.trim(), { skipSelect: true });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

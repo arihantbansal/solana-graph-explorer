@@ -190,6 +190,7 @@ export function NodeDetailPanel() {
                                 exploreAddress(value, {
                                   sourceNodeId: selectedNode.id,
                                   fieldName: key,
+                                  depth: 0,
                                 })
                               }
                               className="text-blue-500 hover:underline"
@@ -273,18 +274,18 @@ export function NodeDetailPanel() {
                   width: n.measured?.width ?? 280,
                   height: n.measured?.height ?? 500,
                 }));
-                expandAccount(
-                  selectedNode.id,
-                  selectedNode.position,
-                  rpcEndpoint,
-                  existingIds,
+                expandAccount({
+                  address: selectedNode.id,
+                  sourcePosition: selectedNode.position,
+                  rpcUrl: rpcEndpoint,
+                  existingNodeIds: existingIds,
                   dispatch,
-                  {
+                  options: {
                     onIdlFetched: makeIdlFetchedHandler(saveProgram),
                     collapsedAddresses: new Set(collapsedAddresses),
                   },
                   existingRects,
-                );
+                });
               }}
             >
               <ChevronsUpDown className="size-3.5 mr-1" />

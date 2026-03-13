@@ -53,7 +53,7 @@ export interface ExploreOptions {
  */
 export function useExploreAddress() {
   const { state, dispatch } = useGraph();
-  const { rpcEndpoint, saveProgram, collapsedAddresses, expansionDepth } = useSettings();
+  const { rpcEndpoint, saveProgram, collapsedAddresses } = useSettings();
 
   return useCallback(
     (address: string, options?: ExploreOptions) => {
@@ -134,12 +134,19 @@ export function useExploreAddress() {
 
       const existingIds = new Set(state.nodes.map((n) => n.id));
       existingIds.add(address);
-      expandAccount(address, position, rpcEndpoint, existingIds, dispatch, {
-        onIdlFetched: makeIdlFetchedHandler(saveProgram),
-        collapsedAddresses: new Set(collapsedAddresses),
-        depth: depth ?? 1,
+      expandAccount({
+        address,
+        sourcePosition: position,
+        rpcUrl: rpcEndpoint,
+        existingNodeIds: existingIds,
+        dispatch,
+        options: {
+          onIdlFetched: makeIdlFetchedHandler(saveProgram),
+          collapsedAddresses: new Set(collapsedAddresses),
+          depth: depth ?? 1,
+        },
       });
     },
-    [state.nodes, state.edges, dispatch, rpcEndpoint, saveProgram, collapsedAddresses, expansionDepth],
+    [state.nodes, state.edges, dispatch, rpcEndpoint, saveProgram, collapsedAddresses],
   );
 }

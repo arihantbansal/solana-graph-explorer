@@ -49,31 +49,28 @@ export function useRelationshipRules() {
         // Mark as processed immediately to avoid re-triggering
         processedPairs.current.add(pairKey);
 
-        // Derive PDA asynchronously
-        derivePdaFromRule(rule, node.data).then(async (derivedAddress) => {
+        // Derive PDA asynchronously.
+        // Note: we capture node.id and rule here but NOT state.nodes/edges,
+        // because by the time the promise resolves the graph state may have changed.
+        // ADD_EDGES already deduplicates, so we can safely dispatch without checking.
+        const nodeId = node.id;
+        const ruleSnapshot = rule;
+        derivePdaFromRule(ruleSnapshot, node.data).then(async (derivedAddress) => {
           if (!derivedAddress) return;
 
-          // Check if already on graph
-          const alreadyExists = state.nodes.some((n) => n.id === derivedAddress);
-          if (alreadyExists) {
-            // Just add edge if needed
-            const edgeId = `pda-rule-${rule.id}-${node.id}-${derivedAddress}`;
-            const alreadyEdged = state.edges.some((e) => e.id === edgeId);
-            if (!alreadyEdged) {
-              const edge: AccountEdge = {
-                id: edgeId,
-                source: node.id,
-                target: derivedAddress,
-                data: {
-                  relationshipType: "user_defined",
-                  label: rule.label,
-                  ruleId: rule.id,
-                },
-              };
-              dispatch({ type: "ADD_EDGES", edges: [edge] });
-            }
-            return;
-          }
+          // Always add the edge — ADD_EDGES deduplicates by id
+          const edgeId = `pda-rule-${ruleSnapshot.id}-${nodeId}-${derivedAddress}`;
+          const edge: AccountEdge = {
+            id: edgeId,
+            source: nodeId,
+            target: derivedAddress,
+            data: {
+              relationshipType: "user_defined",
+              label: ruleSnapshot.label,
+              ruleId: ruleSnapshot.id,
+            },
+          };
+          dispatch({ type: "ADD_EDGES", edges: [edge] });
 
           // Check if the account exists on-chain before adding to graph.
           // PDA rules often derive addresses that may not exist (e.g. mobile
@@ -87,8 +84,8 @@ export function useRelationshipRules() {
 
           // Explore the derived address (adds node + edge + fetches data)
           exploreAddress(derivedAddress, {
-            sourceNodeId: node.id,
-            fieldName: rule.label,
+            sourceNodeId: nodeId,
+            fieldName: ruleSnapshot.label,
             depth: 1,
             skipSelect: true,
           });

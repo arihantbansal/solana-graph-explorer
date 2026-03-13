@@ -60,53 +60,52 @@ export function ProgramBrowser() {
     defaultValues: { programId: "" },
   });
 
+  /** Fetch IDL and build a ProgramEntry. Returns null if not found. */
+  const fetchProgramEntry = useCallback(
+    async (programId: string): Promise<ProgramEntry | null> => {
+      const idl = await fetchIdl(programId, rpcEndpoint);
+      if (!idl) return null;
+      setIdl(programId, idl);
+      return {
+        programId,
+        programName: idl.metadata?.name ?? programId,
+        idlFetchedAt: Date.now(),
+        idl,
+      };
+    },
+    [rpcEndpoint],
+  );
+
   const handleRefresh = useCallback(
     async (programId: string) => {
       setRefreshingId(programId);
       try {
-        const idl = await fetchIdl(programId, rpcEndpoint);
-        if (idl) {
-          setIdl(programId, idl);
-          const entry: ProgramEntry = {
-            programId,
-            programName: idl.metadata?.name ?? programId,
-            idlFetchedAt: Date.now(),
-            idl,
-          };
-          refreshProgram(programId, entry);
-        }
+        const entry = await fetchProgramEntry(programId);
+        if (entry) refreshProgram(programId, entry);
       } catch {
         // refresh failed silently
       } finally {
         setRefreshingId(null);
       }
     },
-    [rpcEndpoint, refreshProgram],
+    [fetchProgramEntry, refreshProgram],
   );
 
   const onSubmit = useCallback(
     async (data: AddProgramForm) => {
-      const programId = data.programId;
       try {
-        const idl = await fetchIdl(programId, rpcEndpoint);
-        if (!idl) {
+        const entry = await fetchProgramEntry(data.programId);
+        if (!entry) {
           form.setError("programId", { message: "No IDL found for this program" });
           return;
         }
-        setIdl(programId, idl);
-        const entry: ProgramEntry = {
-          programId,
-          programName: idl.metadata?.name ?? programId,
-          idlFetchedAt: Date.now(),
-          idl,
-        };
         saveProgram(entry);
         form.reset();
       } catch {
         form.setError("programId", { message: "Failed to fetch IDL" });
       }
     },
-    [rpcEndpoint, saveProgram, form],
+    [fetchProgramEntry, saveProgram, form],
   );
 
   const handleToggle = useCallback(
