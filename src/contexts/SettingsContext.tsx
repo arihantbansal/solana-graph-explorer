@@ -40,8 +40,8 @@ interface RpcOption {
 }
 
 export const RPC_OPTIONS: RpcOption[] = [
-  { key: "mainnet", label: "Mainnet Beta", url: "https://solana-rpc.web.helium.io" },
-  { key: "devnet", label: "Devnet", url: "https://solana-rpc.web.test-helium.com" },
+  { key: "mainnet", label: "Mainnet Beta", url: import.meta.env.VITE_RPC_MAINNET ?? "https://api.mainnet-beta.solana.com" },
+  { key: "devnet", label: "Devnet", url: import.meta.env.VITE_RPC_DEVNET ?? "https://api.devnet.solana.com" },
   { key: "custom", label: "Custom", url: "" },
 ];
 

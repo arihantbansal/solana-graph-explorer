@@ -170,7 +170,7 @@ function FavoriteSearchCard({
       const userValue = fieldValues[String(i)];
       const value = userValue ?? pre?.value ?? "";
       if (!value.trim()) {
-        asyncAction.setError(`"${seed.path}" is required`);
+        asyncAction.setError(`"${"path" in seed ? seed.path : "const"}" is required`);
         return;
       }
       inputs.push({
@@ -219,7 +219,7 @@ function FavoriteSearchCard({
       {fillableSeeds.map(({ seed, index }) => (
         <div key={index} className="space-y-1">
           <label className="text-[10px] text-muted-foreground">
-            {seed.path}
+            {"path" in seed ? seed.path : "const"}
           </label>
           {seed.kind === "account" && (
             <AddressLabelPicker
@@ -279,7 +279,7 @@ const seedFieldSchema = z.object({
 
 const customSeedSchema = z.object({
   label: z.string(),
-  type: z.enum(["string", "pubkey", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "bytes"]),
+  type: z.enum(["string", "pubkey", "bytes"]),
   value: z.string(),
   encoding: z.enum(["utf8", "hex", "base58", "base64"]),
   transform: z.enum(["sha256"]).optional(),
@@ -324,7 +324,7 @@ function PdaSearchDialog({
     },
   });
 
-  const { fields: seedFieldItems, replace: replaceSeedFields, update: updateSeedFieldItem } = useFieldArray({
+  const { replace: replaceSeedFields, update: updateSeedFieldItem } = useFieldArray({
     control: form.control,
     name: "seedFields",
   });
@@ -533,7 +533,7 @@ function PdaSearchDialog({
       if (seed.kind === "const") {
         inputs.push({ seed, value: "", transform: field.transform });
       } else if (!field.value.trim()) {
-        deriveAction.setError(`Seed "${seed.path}" is required`);
+        deriveAction.setError(`Seed "${"path" in seed ? seed.path : "const"}" is required`);
         return;
       } else {
         inputs.push({
@@ -854,10 +854,10 @@ function PdaSearchDialog({
                 const field = seedFields[i];
                 if (!field) return null;
 
-                if (field.isConst) {
+                if (field.isConst && seed.kind === "const") {
                   const display = Array.isArray(seed.value)
                     ? new TextDecoder().decode(new Uint8Array(seed.value))
-                    : String(seed.value ?? seed.path);
+                    : String(seed.value);
                   return (
                     <div key={i} className="space-y-1">
                       <label className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -887,7 +887,7 @@ function PdaSearchDialog({
                       >
                         {seed.kind}
                       </Badge>
-                      {seed.path}
+                      {"path" in seed ? seed.path : "const"}
                     </label>
                     {field.isAccount && (
                       <AddressLabelPicker

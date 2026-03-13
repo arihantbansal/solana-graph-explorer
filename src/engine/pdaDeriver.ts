@@ -103,7 +103,7 @@ async function applyTransform(
 ): Promise<Uint8Array> {
   if (!transform) return bytes;
   if (transform === "sha256") {
-    const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes) as unknown as ArrayBuffer);
     return new Uint8Array(hashBuffer);
   }
   return bytes;

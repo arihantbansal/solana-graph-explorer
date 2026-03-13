@@ -24,7 +24,7 @@ interface BytesFieldDisplayProps {
 
 export function BytesFieldDisplay({
   bytes,
-  fieldName,
+  fieldName: _fieldName,
   defaultEncoding,
   onEncodingChange,
 }: BytesFieldDisplayProps) {
