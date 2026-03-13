@@ -1,4 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useReactFlow } from "@xyflow/react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,62 +15,159 @@ import {
 import { useSettings, RPC_OPTIONS, type RpcEndpointKey } from "@/contexts/SettingsContext";
 import { useGraph } from "@/contexts/GraphContext";
 import type { AccountNode } from "@/types/graph";
-import { Search } from "lucide-react";
+import { Search, Bookmark, Minus, Plus } from "lucide-react";
 import { expandAccount } from "@/engine/expandAccount";
-import type { ProgramEntry } from "@/types/pdaExplorer";
+import { base58AddressSchema } from "@/utils/validation";
+import { shortenAddress } from "@/utils/format";
+import { makeIdlFetchedHandler } from "@/utils/programSaver";
 
-/** Basic Solana address validation: base58, 32-44 chars. */
-function isValidAddress(addr: string): boolean {
-  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr);
+const searchSchema = z.object({
+  address: base58AddressSchema,
+});
+
+type SearchForm = z.infer<typeof searchSchema>;
+
+export function DepthControl() {
+  const { expansionDepth, setExpansionDepth } = useSettings();
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-xs text-muted-foreground whitespace-nowrap">Depth</span>
+      <Button
+        variant="outline"
+        size="icon"
+        className="size-7"
+        onClick={() => setExpansionDepth(expansionDepth - 1)}
+        disabled={expansionDepth <= 1}
+      >
+        <Minus className="size-3" />
+      </Button>
+      <span className="text-sm font-mono w-4 text-center">{expansionDepth}</span>
+      <Button
+        variant="outline"
+        size="icon"
+        className="size-7"
+        onClick={() => setExpansionDepth(expansionDepth + 1)}
+        disabled={expansionDepth >= 5}
+      >
+        <Plus className="size-3" />
+      </Button>
+    </div>
+  );
+}
+
+export function RpcSelector() {
+  const { rpcEndpointKey, setRpcEndpointKey, customRpcUrl, setCustomRpcUrl } = useSettings();
+  return (
+    <div className="flex items-center gap-2">
+      <Select
+        value={rpcEndpointKey}
+        onValueChange={(v) => setRpcEndpointKey(v as RpcEndpointKey)}
+      >
+        <SelectTrigger size="sm">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {RPC_OPTIONS.map((opt) => (
+            <SelectItem key={opt.key} value={opt.key}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {rpcEndpointKey === "custom" && (
+        <Input
+          placeholder="https://..."
+          value={customRpcUrl}
+          onChange={(e) => setCustomRpcUrl(e.target.value)}
+          className="w-60"
+          size={1}
+        />
+      )}
+    </div>
+  );
 }
 
 export function SearchBar() {
-  const [address, setAddress] = useState("");
-  const [error, setError] = useState("");
-  const { rpcEndpoint, rpcEndpointKey, setRpcEndpointKey, customRpcUrl, setCustomRpcUrl, saveProgram } =
+  const form = useForm<SearchForm>({
+    resolver: zodResolver(searchSchema),
+    defaultValues: {
+      address: new URLSearchParams(window.location.search).get("address") ?? "",
+    },
+  });
+
+  const [showLabels, setShowLabels] = useState(false);
+  const { rpcEndpoint, saveProgram, addressLabels, expansionDepth, collapsedAddresses } =
     useSettings();
   const { state, dispatch } = useGraph();
+  const { fitView } = useReactFlow();
+  const hasAutoExplored = useRef(false);
+  const labelsRef = useRef<HTMLDivElement>(null);
 
-  const handleExplore = useCallback(() => {
-    const trimmed = address.trim();
-    if (!trimmed) {
-      setError("Enter an address");
-      return;
-    }
-    if (!isValidAddress(trimmed)) {
-      setError("Invalid Solana address");
-      return;
-    }
-    setError("");
+  const addressError = form.formState.errors.address?.message;
 
-    const position = { x: 400, y: 300 };
-    const node: AccountNode = {
-      id: trimmed,
-      type: "account",
-      position,
-      data: {
-        address: trimmed,
-        isExpanded: false,
-        isLoading: true,
-      },
+  const handleExplore = useCallback(
+    (data: SearchForm) => {
+      const trimmed = data.address.trim();
+
+      // Update URL
+      const url = new URL(window.location.href);
+      url.searchParams.set("address", trimmed);
+      window.history.replaceState({}, "", url.toString());
+
+      // Clear existing graph and start fresh
+      dispatch({ type: "CLEAR" });
+
+      const position = { x: 400, y: 300 };
+      const node: AccountNode = {
+        id: trimmed,
+        type: "account",
+        position,
+        data: {
+          address: trimmed,
+          isExpanded: false,
+          isLoading: true,
+        },
+      };
+      dispatch({ type: "ADD_NODES", nodes: [node] });
+
+      const existingIds = new Set([trimmed]);
+      expandAccount(trimmed, position, rpcEndpoint, existingIds, dispatch, {
+        onIdlFetched: makeIdlFetchedHandler(saveProgram),
+        collapsedAddresses: new Set(collapsedAddresses),
+        depth: expansionDepth,
+      }).then(() => {
+        // Fit viewport to show all nodes after expansion completes
+        requestAnimationFrame(() => {
+          fitView({ duration: 400, padding: 0.2, maxZoom: 1 });
+        });
+      });
+    },
+    [dispatch, rpcEndpoint, saveProgram, fitView, expansionDepth, collapsedAddresses],
+  );
+
+  // Auto-explore on mount if URL has an address
+  useEffect(() => {
+    const addr = form.getValues("address");
+    if (!hasAutoExplored.current && addr && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr.trim())) {
+      hasAutoExplored.current = true;
+      handleExplore({ address: addr });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Close labels dropdown on outside click
+  useEffect(() => {
+    if (!showLabels) return;
+    const handler = (e: MouseEvent) => {
+      if (labelsRef.current && !labelsRef.current.contains(e.target as Node)) {
+        setShowLabels(false);
+      }
     };
-    dispatch({ type: "ADD_NODES", nodes: [node] });
-    dispatch({ type: "SELECT_NODE", nodeId: trimmed });
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showLabels]);
 
-    const existingIds = new Set(state.nodes.map((n) => n.id));
-    existingIds.add(trimmed);
-    expandAccount(trimmed, position, rpcEndpoint, existingIds, dispatch, {
-      onIdlFetched: (programId, idl) => {
-        const entry: ProgramEntry = {
-          programId,
-          programName: idl.metadata?.name ?? programId,
-          idlFetchedAt: Date.now(),
-          idl,
-        };
-        saveProgram(entry);
-      },
-    });
-  }, [address, dispatch, rpcEndpoint, state.nodes, saveProgram]);
+  const labelEntries = Object.entries(addressLabels);
 
   return (
     <div className="flex items-center gap-2 p-3 border-b bg-background">
@@ -74,54 +175,68 @@ export function SearchBar() {
         <div className="flex-1 relative">
           <Input
             placeholder="Enter Solana address..."
-            value={address}
-            onChange={(e) => {
-              setAddress(e.target.value);
-              if (error) setError("");
-            }}
+            {...form.register("address")}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleExplore();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                form.handleSubmit(handleExplore)();
+              }
             }}
-            className={error ? "border-destructive" : ""}
+            className={addressError ? "border-destructive" : ""}
           />
-          {error && (
+          {addressError && (
             <div className="absolute text-[11px] text-destructive mt-0.5">
-              {error}
+              {addressError}
             </div>
           )}
         </div>
-        <Button onClick={handleExplore} size="sm">
+        <Button onClick={form.handleSubmit(handleExplore)} size="sm">
           <Search className="size-4 mr-1" />
           Explore
         </Button>
+
+        {/* Labeled addresses dropdown */}
+        {labelEntries.length > 0 && (
+          <div className="relative" ref={labelsRef}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="hidden md:inline-flex"
+              onClick={() => setShowLabels((p) => !p)}
+              title="Saved labels"
+            >
+              <Bookmark className="size-4" />
+            </Button>
+            {showLabels && (
+              <div className="absolute top-full left-0 mt-1 z-50 bg-background border rounded-md shadow-lg min-w-[240px] max-h-[300px] overflow-y-auto">
+                {labelEntries.map(([addr, lbl]) => (
+                  <button
+                    key={addr}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center justify-between gap-2"
+                    onClick={() => {
+                      form.setValue("address", addr);
+                      setShowLabels(false);
+                      // Auto-explore
+                      const url = new URL(window.location.href);
+                      url.searchParams.set("address", addr);
+                      window.history.replaceState({}, "", url.toString());
+                    }}
+                  >
+                    <span className="font-medium truncate">{lbl}</span>
+                    <span className="text-xs text-muted-foreground font-mono shrink-0">
+                      {shortenAddress(addr, 6)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="flex items-center gap-2 ml-auto">
-        <Select
-          value={rpcEndpointKey}
-          onValueChange={(v) => setRpcEndpointKey(v as RpcEndpointKey)}
-        >
-          <SelectTrigger size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {RPC_OPTIONS.map((opt) => (
-              <SelectItem key={opt.key} value={opt.key}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {rpcEndpointKey === "custom" && (
-          <Input
-            placeholder="https://..."
-            value={customRpcUrl}
-            onChange={(e) => setCustomRpcUrl(e.target.value)}
-            className="w-60"
-            size={1}
-          />
-        )}
+      <div className="hidden lg:flex items-center gap-2 ml-auto">
+        <DepthControl />
+        <RpcSelector />
       </div>
     </div>
   );

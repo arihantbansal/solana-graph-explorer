@@ -8,20 +8,15 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import type { IdlSeed } from "@/types/idl";
-import type { BufferEncoding, SeedInputValue } from "@/types/pdaExplorer";
+import type { SeedInputValue } from "@/types/pdaExplorer";
+import { BUFFER_ENCODING_OPTIONS } from "@/types/pdaExplorer";
+import type { BufferEncoding } from "@/types/pdaExplorer";
 
 interface SeedInputProps {
   seed: IdlSeed;
   value: SeedInputValue;
   onChange: (value: SeedInputValue) => void;
 }
-
-const ENCODING_OPTIONS: { value: BufferEncoding; label: string }[] = [
-  { value: "utf8", label: "UTF-8" },
-  { value: "hex", label: "Hex" },
-  { value: "base58", label: "Base58" },
-  { value: "base64", label: "Base64" },
-];
 
 function seedLabel(seed: IdlSeed): string {
   if (seed.kind === "const") {
@@ -96,7 +91,7 @@ export function SeedInput({ seed, value, onChange }: SeedInputProps) {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {ENCODING_OPTIONS.map((opt) => (
+            {BUFFER_ENCODING_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label}
               </SelectItem>

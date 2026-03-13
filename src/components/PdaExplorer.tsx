@@ -17,8 +17,9 @@ import {
   getProgramDerivedAddress,
   address,
 } from "@solana/kit";
-import type { ProgramEntry, PdaDefinition, SeedInputValue } from "@/types/pdaExplorer";
+import type { PdaDefinition, SeedInputValue } from "@/types/pdaExplorer";
 import { Loader2, Search } from "lucide-react";
+import { makeIdlFetchedHandler } from "@/utils/programSaver";
 
 interface PdaExplorerProps {
   program: ProgramEntry;
@@ -29,7 +30,7 @@ export function PdaExplorer({ program }: PdaExplorerProps) {
   const { rpcEndpoint, saveProgram } = useSettings();
 
   const pdaDefinitions = useMemo(
-    () => extractPdaDefinitions(program.idl, program.programId),
+    () => (program.idl ? extractPdaDefinitions(program.idl, program.programId) : []),
     [program],
   );
 
@@ -80,7 +81,7 @@ export function PdaExplorer({ program }: PdaExplorerProps) {
     setDerivedAddress(null);
 
     try {
-      const seedBuffers = buildSeedBuffers(seedValues);
+      const seedBuffers = await buildSeedBuffers(seedValues);
       const programAddr = address(selectedPda.programId);
 
       const [pda] = await getProgramDerivedAddress({
@@ -110,14 +111,7 @@ export function PdaExplorer({ program }: PdaExplorerProps) {
 
       existingIds.add(derived);
       await expandAccount(derived, position, rpcEndpoint, existingIds, dispatch, {
-        onIdlFetched: (programId, idl) => {
-          saveProgram({
-            programId,
-            programName: idl.metadata?.name ?? programId,
-            idlFetchedAt: Date.now(),
-            idl,
-          });
-        },
+        onIdlFetched: makeIdlFetchedHandler(saveProgram),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to derive PDA");
@@ -125,6 +119,14 @@ export function PdaExplorer({ program }: PdaExplorerProps) {
       setIsLoading(false);
     }
   }, [selectedPda, seedValues, state.nodes, dispatch, rpcEndpoint, saveProgram]);
+
+  if (!program.idl) {
+    return (
+      <div className="text-xs text-muted-foreground p-2">
+        Loading IDL...
+      </div>
+    );
+  }
 
   if (pdaDefinitions.length === 0) {
     return (

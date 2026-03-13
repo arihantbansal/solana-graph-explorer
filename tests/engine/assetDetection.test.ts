@@ -27,6 +27,7 @@ describe("parseAssetResponse", () => {
       name: "Cool NFT #42",
       image: "https://arweave.net/abc123",
       isNft: true,
+      owner: null,
     });
   });
 
@@ -144,6 +145,7 @@ describe("detectAsset", () => {
         name: "Test NFT",
         image: "https://example.com/img.png",
         isNft: true,
+        owner: null,
       });
     } finally {
       globalThis.fetch = originalFetch;

@@ -4,9 +4,13 @@ import type { Idl, IdlTypeDef } from "@/types/idl";
 import { fetchAccount } from "@/solana/fetchAccount";
 import { fetchIdl } from "@/solana/fetchIdl";
 import { getIdl, setIdl, hasIdl } from "@/solana/idlCache";
-import { identifyAccountType, decodeAccountData } from "./accountDecoder";
+import { identifyAccountType, decodeAccountData, decodeStructData } from "./accountDecoder";
+import { identifyBuiltinAccount } from "@/solana/builtinIdls";
 import { inferAllRelationships } from "./relationshipEngine";
 import { buildExpansionGraph } from "./graphBuilder";
+import { detectAsset } from "./assetDetection";
+import type { NodeRect } from "@/utils/layout";
+import type { Relationship, TokenRelationship } from "@/types/relationships";
 
 export interface ExpandResult {
   decodedData: Record<string, unknown> | null;
@@ -15,48 +19,72 @@ export interface ExpandResult {
   typeDef: IdlTypeDef | null;
 }
 
-/**
- * Fetch and decode a single account, updating the graph node with results.
- * Does NOT expand relationships — call expandRelationships separately.
- */
-export async function loadAccount(
-  address: string,
-  rpcUrl: string,
-  dispatch: Dispatch<GraphAction>,
-  options?: ExpandOptions,
-): Promise<ExpandResult> {
-  dispatch({
-    type: "SET_NODE_DATA",
-    nodeId: address,
-    data: { isLoading: true, error: undefined },
-  });
+/** Extended result from fetchAndDecode that includes data needed for graph node updates. */
+export interface FetchDecodeResult extends ExpandResult {
+  /** Owner program of the account */
+  programId: string | null;
+  /** Program display name (from IDL metadata) */
+  programName: string | null;
+  /** Account balance in lamports */
+  balance: number | null;
+  /** NFT/asset thumbnail URL */
+  thumbnail: string | undefined;
+  /** Error message if fetch failed */
+  error: string | undefined;
+  /** Whether the account was not found */
+  notFound: boolean;
+}
 
+/**
+ * Pure fetch + decode: fetches an account from RPC and decodes it using IDL,
+ * WITHOUT dispatching any graph actions. Returns all data needed to update the graph.
+ */
+export async function fetchAndDecode(
+  addr: string,
+  rpcUrl: string,
+  options?: ExpandOptions,
+): Promise<FetchDecodeResult> {
   try {
-    const account = await fetchAccount(address, rpcUrl);
+    const account = await fetchAccount(addr, rpcUrl);
     if (!account) {
-      dispatch({
-        type: "SET_NODE_DATA",
-        nodeId: address,
-        data: {
-          isLoading: false,
-          error: "Account not found",
-        },
-      });
-      return { decodedData: null, accountType: null, idl: null, typeDef: null };
+      // Try DAS asset detection as fallback (compressed NFTs, etc.)
+      try {
+        const asset = await detectAsset(addr, rpcUrl);
+        if (asset) {
+          const assetDecodedData = asset.owner ? { owner: asset.owner } : null;
+          return {
+            decodedData: assetDecodedData,
+            accountType: asset.isNft ? "NFT" : "Asset",
+            idl: null,
+            typeDef: null,
+            programId: null,
+            programName: asset.name,
+            balance: null,
+            thumbnail: asset.image ?? undefined,
+            error: undefined,
+            notFound: false,
+          };
+        }
+      } catch {
+        // DAS not available — fall through
+      }
+
+      return {
+        decodedData: null,
+        accountType: "Not Found",
+        idl: null,
+        typeDef: null,
+        programId: null,
+        programName: null,
+        balance: null,
+        thumbnail: undefined,
+        error: undefined,
+        notFound: true,
+      };
     }
 
     const owner = account.owner;
     const lamports = account.lamports;
-
-    // Update with basic info immediately
-    dispatch({
-      type: "SET_NODE_DATA",
-      nodeId: address,
-      data: {
-        programId: owner,
-        balance: Number(lamports),
-      },
-    });
 
     // Try to get IDL for the owning program
     let idl: Idl | null = null;
@@ -77,16 +105,24 @@ export async function loadAccount(
     let decodedData: Record<string, unknown> | null = null;
     let accountType: string | null = null;
     let typeDef: IdlTypeDef | null = null;
+    let programName: string | null = null;
 
-    if (idl) {
-      const programName = idl.metadata?.name ?? owner;
-      dispatch({
-        type: "SET_NODE_DATA",
-        nodeId: address,
-        data: { programName },
-      });
+    // Try built-in account identification first (SPL Token, etc.)
+    const builtin = identifyBuiltinAccount(account.data.length, owner);
+    if (builtin) {
+      accountType = builtin.name;
+      typeDef = builtin.typeDef;
+      idl = idl ?? builtin.idl;
+      programName = idl.metadata?.name ?? owner;
 
-      // Identify account type
+      try {
+        decodedData = decodeStructData(account.data, builtin.typeDef, builtin.idl);
+      } catch {
+        // Decoding failed — show type but no data
+      }
+    } else if (idl) {
+      programName = idl.metadata?.name ?? owner;
+
       const identified = identifyAccountType(account.data, idl);
       if (identified) {
         accountType = identified.name;
@@ -102,28 +138,123 @@ export async function loadAccount(
       }
     }
 
-    dispatch({
-      type: "SET_NODE_DATA",
-      nodeId: address,
-      data: {
-        isLoading: false,
-        accountType: accountType ?? "Unknown",
-        decodedData: decodedData ?? undefined,
-      },
-    });
-
-    return { decodedData, accountType, idl, typeDef };
+    return {
+      decodedData,
+      accountType,
+      idl,
+      typeDef,
+      programId: owner,
+      programName,
+      balance: Number(lamports),
+      thumbnail: undefined,
+      error: undefined,
+      notFound: false,
+    };
   } catch (err) {
+    return {
+      decodedData: null,
+      accountType: null,
+      idl: null,
+      typeDef: null,
+      programId: null,
+      programName: null,
+      balance: null,
+      thumbnail: undefined,
+      error: err instanceof Error ? err.message : "Failed to fetch account",
+      notFound: false,
+    };
+  }
+}
+
+/**
+ * Apply a FetchDecodeResult to a graph node by dispatching SET_NODE_DATA.
+ */
+function applyResultToGraph(
+  addr: string,
+  result: FetchDecodeResult,
+  dispatch: Dispatch<GraphAction>,
+): void {
+  if (result.error) {
     dispatch({
       type: "SET_NODE_DATA",
-      nodeId: address,
+      nodeId: addr,
       data: {
         isLoading: false,
-        error: err instanceof Error ? err.message : "Failed to fetch account",
+        error: result.error,
       },
     });
-    return { decodedData: null, accountType: null, idl: null, typeDef: null };
+    return;
   }
+
+  if (result.notFound) {
+    dispatch({
+      type: "SET_NODE_DATA",
+      nodeId: addr,
+      data: {
+        isLoading: false,
+        isExpanded: true,
+        accountType: "Not Found",
+      },
+    });
+    return;
+  }
+
+  // For DAS assets (no programId)
+  if (!result.programId) {
+    dispatch({
+      type: "SET_NODE_DATA",
+      nodeId: addr,
+      data: {
+        isLoading: false,
+        accountType: result.accountType ?? "Unknown",
+        programName: result.programName ?? undefined,
+        thumbnail: result.thumbnail,
+        decodedData: result.decodedData ?? undefined,
+      },
+    });
+    return;
+  }
+
+  dispatch({
+    type: "SET_NODE_DATA",
+    nodeId: addr,
+    data: {
+      isLoading: false,
+      programId: result.programId,
+      programName: result.programName ?? undefined,
+      balance: result.balance ?? undefined,
+      accountType: result.accountType ?? "Unknown",
+      decodedData: result.decodedData ?? undefined,
+      thumbnail: result.thumbnail,
+    },
+  });
+}
+
+/**
+ * Fetch and decode a single account, updating the graph node with results.
+ * Does NOT expand relationships — call expandRelationships separately.
+ */
+export async function loadAccount(
+  address: string,
+  rpcUrl: string,
+  dispatch: Dispatch<GraphAction>,
+  options?: ExpandOptions,
+): Promise<ExpandResult> {
+  dispatch({
+    type: "SET_NODE_DATA",
+    nodeId: address,
+    data: { isLoading: true, error: undefined },
+  });
+
+  const result = await fetchAndDecode(address, rpcUrl, options);
+  applyResultToGraph(address, result, dispatch);
+
+  return {
+    decodedData: result.decodedData,
+    accountType: result.accountType,
+    idl: result.idl,
+    typeDef: result.typeDef,
+  };
 }
 
 /**
@@ -132,6 +263,11 @@ export async function loadAccount(
  */
 export interface ExpandOptions {
   onIdlFetched?: (programId: string, idl: Idl) => void;
+  collapsedAddresses?: Set<string>;
+  /** How many levels deep to expand (1 = only this node's children, 2 = children + grandchildren, etc.). Default 1. */
+  depth?: number;
+  /** Pre-loaded fetch+decode result to avoid redundant RPC calls during recursive expansion. */
+  _preloadedResult?: FetchDecodeResult;
 }
 
 export async function expandAccount(
@@ -141,8 +277,50 @@ export async function expandAccount(
   existingNodeIds: Set<string>,
   dispatch: Dispatch<GraphAction>,
   options?: ExpandOptions,
+  existingRects?: NodeRect[],
 ): Promise<void> {
-  const result = await loadAccount(address, rpcUrl, dispatch, options);
+  const depth = options?.depth ?? 1;
+
+  // depth=0 means just load, don't expand relationships
+  if (depth <= 0) {
+    if (options?._preloadedResult) {
+      applyResultToGraph(address, options._preloadedResult, dispatch);
+    } else {
+      await loadAccount(address, rpcUrl, dispatch, options);
+    }
+    return;
+  }
+
+  // Skip expansion entirely for always-collapsed addresses
+  if (options?.collapsedAddresses?.has(address)) {
+    if (options?._preloadedResult) {
+      applyResultToGraph(address, options._preloadedResult, dispatch);
+    } else {
+      await loadAccount(address, rpcUrl, dispatch, options);
+    }
+    dispatch({
+      type: "SET_NODE_DATA",
+      nodeId: address,
+      data: { isExpanded: true },
+    });
+    return;
+  }
+
+  // Use pre-loaded result if available (from parent's pre-flight fetch),
+  // otherwise fetch fresh from RPC.
+  let result: ExpandResult;
+  if (options?._preloadedResult) {
+    const preloaded = options._preloadedResult;
+    applyResultToGraph(address, preloaded, dispatch);
+    result = {
+      decodedData: preloaded.decodedData,
+      accountType: preloaded.accountType,
+      idl: preloaded.idl,
+      typeDef: preloaded.typeDef,
+    };
+  } else {
+    result = await loadAccount(address, rpcUrl, dispatch, options);
+  }
 
   if (!result.decodedData) {
     dispatch({
@@ -153,13 +331,15 @@ export async function expandAccount(
     return;
   }
 
-  // Infer relationships
-  const relationships = inferAllRelationships({
+  // Infer relationships, filtering out mints and likely wallets
+  const allRelationships = inferAllRelationships({
     sourceAddress: address,
     decodedData: result.decodedData,
     typeDef: result.typeDef ?? undefined,
     idl: result.idl ?? undefined,
   });
+  const collapsed = options?.collapsedAddresses;
+  const relationships = filterNoisyRelationships(allRelationships);
 
   if (relationships.length === 0) {
     dispatch({
@@ -170,20 +350,69 @@ export async function expandAccount(
     return;
   }
 
-  // Build graph expansion
+  // Build graph expansion (positions computed but nodes not yet added to graph)
   const expansion = buildExpansionGraph(
     address,
     sourcePosition,
     relationships,
     existingNodeIds,
+    existingRects,
   );
 
-  // Add nodes and edges to graph
-  if (expansion.nodes.length > 0) {
-    dispatch({ type: "ADD_NODES", nodes: expansion.nodes });
+  // depth=N means N edges of expansion from the starting node.
+  // After expanding this node (1 edge), remaining depth is depth-1.
+  const remainingDepth = depth - 1;
+
+  // Separate collapsed stubs from normal children to expand
+  const collapsedNodes = expansion.nodes.filter((n) => collapsed?.has(n.id));
+  const normalNodes = expansion.nodes.filter((n) => !collapsed?.has(n.id));
+
+  // Add collapsed nodes: fetch their data but don't expand their relationships
+  if (collapsedNodes.length > 0) {
+    dispatch({ type: "ADD_NODES", nodes: collapsedNodes });
+    const collapsedIds = new Set(collapsedNodes.map((n) => n.id));
+    const stubEdges = expansion.edges.filter(
+      (edge) => collapsedIds.has(edge.target) || collapsedIds.has(edge.source),
+    );
+    if (stubEdges.length > 0) {
+      dispatch({ type: "ADD_EDGES", edges: stubEdges });
+    }
+    // Fetch and decode each collapsed node (applies data to graph) but skip expansion
+    await Promise.all(
+      collapsedNodes.map(async (node) => {
+        const result = await fetchAndDecode(node.id, rpcUrl, options);
+        applyResultToGraph(node.id, result, dispatch);
+      }),
+    );
   }
-  if (expansion.edges.length > 0) {
-    dispatch({ type: "ADD_EDGES", edges: expansion.edges });
+
+  // Pre-load ALL normal child accounts in parallel before adding anything to the graph.
+  // This avoids the flash where nodes appear briefly then get removed.
+  const preloadResults = await Promise.all(
+    normalNodes.map(async (node) => {
+      const result = await fetchAndDecode(node.id, rpcUrl, options);
+      return { node, result };
+    }),
+  );
+
+  // Filter out uninteresting nodes (no data, mints, etc.)
+  const keptChildren = preloadResults.filter(
+    ({ result }) => !shouldRemoveNode(result),
+  );
+  const keptNodeIds = new Set(keptChildren.map(({ node }) => node.id));
+
+  // Only add nodes that passed the filter
+  const keptNodes = keptChildren.map(({ node }) => node);
+  // Only add edges whose targets are kept (or already exist in the graph)
+  const normalEdges = expansion.edges.filter(
+    (edge) => keptNodeIds.has(edge.target) || existingNodeIds.has(edge.target),
+  );
+
+  if (keptNodes.length > 0) {
+    dispatch({ type: "ADD_NODES", nodes: keptNodes });
+  }
+  if (normalEdges.length > 0) {
+    dispatch({ type: "ADD_EDGES", edges: normalEdges });
   }
 
   dispatch({
@@ -192,8 +421,61 @@ export async function expandAccount(
     data: { isExpanded: true },
   });
 
-  // Load each related account (fire and forget, they update individually)
-  for (const node of expansion.nodes) {
-    loadAccount(node.id, rpcUrl, dispatch);
+  // Apply the pre-loaded data to graph nodes and recursively expand survivors
+  const expandPromises: Promise<void>[] = [];
+  for (const { node, result: childResult } of keptChildren) {
+    if (remainingDepth > 0 && childResult.decodedData) {
+      // Recursively expand, passing the pre-loaded data to avoid redundant RPC call
+      expandPromises.push(
+        expandAccount(
+          node.id,
+          node.position,
+          rpcUrl,
+          new Set([...existingNodeIds, ...keptNodes.map((n) => n.id)]),
+          dispatch,
+          { ...options, depth: remainingDepth, _preloadedResult: childResult },
+          existingRects,
+        ),
+      );
+    } else {
+      // Leaf node — just apply the already-fetched data
+      applyResultToGraph(node.id, childResult, dispatch);
+    }
   }
+
+  await Promise.all(expandPromises);
+}
+
+/**
+ * Returns true if a loaded account is uninteresting and should be removed
+ * from the graph (no decoded data, or is a token mint).
+ * User-initiated expansions bypass this — it only applies to auto-loaded children.
+ */
+function shouldRemoveNode(result: ExpandResult): boolean {
+  // Keep compressed assets / NFTs (no decodedData but have accountType from DAS)
+  if (!result.decodedData) {
+    const type = result.accountType?.toLowerCase();
+    if (type === "nft" || type === "asset") return false;
+    // No data, no special type — plain wallet / system account
+    return true;
+  }
+
+  // Token mints are leaf nodes with no useful graph connections
+  if (result.accountType?.toLowerCase() === "mint") return true;
+
+  return false;
+}
+
+/**
+ * Filter out relationships that create noise in the graph:
+ * - Token relationships to mints (mint accounts are removed after loading anyway,
+ *   but skipping them here avoids the flash of a loading node)
+ */
+function filterNoisyRelationships(relationships: Relationship[]): Relationship[] {
+  return relationships.filter((rel) => {
+    if (rel.type === "token" && (rel as TokenRelationship).tokenType === "mint") {
+      return false;
+    }
+    return true;
+  });
 }

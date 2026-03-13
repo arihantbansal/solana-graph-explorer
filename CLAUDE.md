@@ -21,7 +21,7 @@
 - Anchor IDL PDA seeds: `["anchor:idl", programId]`
 - IDL v0.30+ detection: presence of `metadata.spec` field
 - Relationship types: has_one, pda_seed, token, user_defined
-- Custom Borsh reader (no borsh-js dependency)
+- BorshReader uses @solana/kit codecs (getU8Decoder, getAddressDecoder, etc.)
 - fflate for IDL decompression (not pako)
 
 ## PDA Explorer Feature
@@ -57,6 +57,17 @@ A "Program Browser" panel that remembers visited programs and lets users derive 
 4. User selects a PDA → seed form rendered dynamically
 5. User fills seeds (buffer fields get encoding selector) → "Derive & Fetch" button
 6. Derived address fetched, decoded, added to graph
+
+## Settings Import/Export
+- All settings (rules, programs, address labels, PDA searches, bytes encodings, RPC config) can be exported as JSON via the download button in the header and imported via the upload button.
+- `useSettings().exportSettings()` returns JSON string, `importSettings(json)` restores all state + localStorage.
+
+## Puppeteer / Browser Testing
+When using puppeteer to test the app, the browser session has its own localStorage that is separate from the user's real browser. **Before clearing the session or restarting the browser**, you MUST:
+1. Export the current configuration: run `exportSettings()` via puppeteer evaluate and save the result to `test-configuration.json` in the project root
+2. After the new session starts, import it back by reading `test-configuration.json` and calling `importSettings(json)` via puppeteer evaluate
+
+This prevents loss of the user's saved programs, rules, address labels, and PDA searches during testing.
 
 ## Patterns
 - All engine code is pure/deterministic — test with vitest

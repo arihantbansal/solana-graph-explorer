@@ -2,6 +2,7 @@ export interface DasAssetInfo {
   name: string;
   image: string | null;
   isNft: boolean;
+  owner: string | null;
 }
 
 export interface DasGetAssetResponse {
@@ -19,6 +20,9 @@ export interface DasGetAssetResponse {
   interface?: string;
   compression?: {
     compressed: boolean;
+  };
+  ownership?: {
+    owner?: string;
   };
 }
 
@@ -71,5 +75,7 @@ export function parseAssetResponse(
   ];
   const isNft = nftInterfaces.includes(result.interface ?? "");
 
-  return { name, image, isNft };
+  const owner = result.ownership?.owner ?? null;
+
+  return { name, image, isNft, owner };
 }

@@ -3,6 +3,7 @@ import type {
   PdaDefinition,
   SeedInputValue,
   BufferEncoding,
+  SeedTransform,
 } from "@/types/pdaExplorer";
 
 const BASE58_ALPHABET =
@@ -60,7 +61,12 @@ function seedSignature(seeds: IdlSeed[]): string {
           : String(s.value);
         return `const:${val}`;
       }
-      if (s.kind === "account") return `account:${s.path}`;
+      // Normalize nested paths (e.g. "lazy_distributor.rewards_mint" → "rewards_mint")
+      // since the actual seed value is the same pubkey regardless of how Anchor resolves it.
+      if (s.kind === "account") {
+        const leaf = s.path.split(".").pop()!;
+        return `account:${leaf}`;
+      }
       if (s.kind === "arg") return `arg:${s.path}`;
       return "unknown";
     })
@@ -89,32 +95,50 @@ export function encodeSeedValue(
 }
 
 /**
+ * Apply a transform (e.g. SHA-256 hash) to seed bytes.
+ */
+async function applyTransform(
+  bytes: Uint8Array,
+  transform?: SeedTransform,
+): Promise<Uint8Array> {
+  if (!transform) return bytes;
+  if (transform === "sha256") {
+    const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+    return new Uint8Array(hashBuffer);
+  }
+  return bytes;
+}
+
+/**
  * Convert a single SeedInputValue into the bytes needed for PDA derivation.
  */
-export function seedInputToBytes(input: SeedInputValue): Uint8Array {
-  const { seed, value, bufferEncoding } = input;
+export async function seedInputToBytes(input: SeedInputValue): Promise<Uint8Array> {
+  const { seed, value, bufferEncoding, transform } = input;
+
+  let bytes: Uint8Array;
 
   if (seed.kind === "const") {
     if (Array.isArray(seed.value)) {
-      return new Uint8Array(seed.value);
+      bytes = new Uint8Array(seed.value);
+    } else {
+      bytes = new TextEncoder().encode(seed.value);
     }
-    return new TextEncoder().encode(seed.value);
-  }
-
-  if (seed.kind === "account") {
+  } else if (seed.kind === "account") {
     // Account seeds are always pubkeys — decode from base58
-    return base58ToBytes(value);
+    bytes = base58ToBytes(value);
+  } else {
+    // For "arg" seeds, use the provided encoding (default utf8)
+    bytes = encodeSeedValue(value, bufferEncoding ?? "utf8");
   }
 
-  // For "arg" seeds, use the provided encoding (default utf8)
-  return encodeSeedValue(value, bufferEncoding ?? "utf8");
+  return applyTransform(bytes, transform);
 }
 
 /**
  * Build the full seeds array (as Uint8Array[]) from user inputs.
  */
-export function buildSeedBuffers(inputs: SeedInputValue[]): Uint8Array[] {
-  return inputs.map(seedInputToBytes);
+export async function buildSeedBuffers(inputs: SeedInputValue[]): Promise<Uint8Array[]> {
+  return Promise.all(inputs.map(seedInputToBytes));
 }
 
 // --- Encoding helpers ---

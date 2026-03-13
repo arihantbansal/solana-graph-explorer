@@ -43,6 +43,36 @@ function graphReducer(state: GraphState, action: GraphAction): GraphState {
           state.selectedNodeId === nodeId ? null : state.selectedNodeId,
       };
     }
+    case "COLLAPSE_CHILDREN": {
+      const parentId = action.nodeId;
+      // Find edges connected to this node
+      const childEdges = state.edges.filter(
+        (e) => e.source === parentId || e.target === parentId,
+      );
+      // Get candidate child node IDs
+      const childIds = new Set(
+        childEdges.map((e) => (e.source === parentId ? e.target : e.source)),
+      );
+      // Keep children that have edges to OTHER nodes (not just this parent)
+      const sharedChildren = new Set<string>();
+      for (const edge of state.edges) {
+        if (edge.source === parentId || edge.target === parentId) continue;
+        if (childIds.has(edge.source)) sharedChildren.add(edge.source);
+        if (childIds.has(edge.target)) sharedChildren.add(edge.target);
+      }
+      const toRemove = new Set([...childIds].filter((id) => !sharedChildren.has(id)));
+      return {
+        ...state,
+        nodes: state.nodes.map((n) =>
+          n.id === parentId
+            ? { ...n, data: { ...n.data, isExpanded: false } }
+            : n,
+        ).filter((n) => !toRemove.has(n.id)),
+        edges: state.edges.filter(
+          (e) => !toRemove.has(e.source) && !toRemove.has(e.target),
+        ),
+      };
+    }
     case "CLEAR":
       return initialState;
     case "SET_NODES":

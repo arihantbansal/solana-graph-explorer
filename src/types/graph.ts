@@ -1,5 +1,5 @@
 import type { Node, Edge } from "@xyflow/react";
-import type { RelationshipType } from "./relationships";
+import type { RelationshipType, PdaRelationshipRule } from "./relationships";
 
 export interface AccountNodeData {
   address: string;
@@ -12,6 +12,7 @@ export interface AccountNodeData {
   decodedData?: Record<string, unknown>;
   error?: string;
   thumbnail?: string; // NFT image URL
+
   [key: string]: unknown;
 }
 
@@ -21,6 +22,8 @@ export interface AccountEdgeData {
   relationshipType: RelationshipType;
   label: string;
   fieldName?: string;
+  ruleId?: string;
+  pdaRule?: PdaRelationshipRule;
   [key: string]: unknown;
 }
 
@@ -38,6 +41,7 @@ export type GraphAction =
   | { type: "SET_NODE_DATA"; nodeId: string; data: Partial<AccountNodeData> }
   | { type: "SELECT_NODE"; nodeId: string | null }
   | { type: "REMOVE_NODE"; nodeId: string }
+  | { type: "COLLAPSE_CHILDREN"; nodeId: string }
   | { type: "CLEAR" }
   | { type: "SET_NODES"; nodes: AccountNode[] }
   | { type: "SET_EDGES"; edges: AccountEdge[] };

@@ -1,7 +1,6 @@
 import type { Relationship } from "@/types/relationships";
 import type { Idl, IdlTypeDef } from "@/types/idl";
 import { inferHasOneRelationships } from "./hasOneInference";
-import { inferPdaRelationships } from "./pdaRelationships";
 import { inferTokenRelationships } from "./tokenAccountInference";
 
 export interface InferenceInput {
@@ -20,11 +19,6 @@ export function inferAllRelationships(input: InferenceInput): Relationship[] {
     all.push(
       ...inferHasOneRelationships(sourceAddress, decodedData, typeDef, idl)
     );
-  }
-
-  // PDA seed inference (requires idl)
-  if (idl) {
-    all.push(...inferPdaRelationships(sourceAddress, decodedData, idl));
   }
 
   // Token account inference (always runs)

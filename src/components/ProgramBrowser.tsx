@@ -1,5 +1,9 @@
 import { useState, useCallback } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Sheet,
@@ -9,6 +13,13 @@ import {
   SheetTrigger,
   SheetDescription,
 } from "@/components/ui/sheet";
+import {
+  Form,
+  FormField,
+  FormItem,
+  FormControl,
+  FormMessage,
+} from "@/components/ui/form";
 import { useSettings } from "@/contexts/SettingsContext";
 import { fetchIdl } from "@/solana/fetchIdl";
 import { setIdl } from "@/solana/idlCache";
@@ -21,13 +32,33 @@ import {
   ChevronRight,
   ChevronDown,
   Loader2,
+  Plus,
 } from "lucide-react";
 
 export function ProgramBrowser() {
-  const { savedPrograms, removeProgram, refreshProgram, rpcEndpoint } =
+  const { savedPrograms, removeProgram, refreshProgram, saveProgram, rpcEndpoint } =
     useSettings();
   const [expandedProgramId, setExpandedProgramId] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+
+  const addProgramSchema = z.object({
+    programId: z
+      .string()
+      .trim()
+      .min(1, "Enter a program ID")
+      .regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "Invalid program ID")
+      .refine(
+        (id) => !savedPrograms.some((p) => p.programId === id),
+        "Program already saved",
+      ),
+  });
+
+  type AddProgramForm = z.infer<typeof addProgramSchema>;
+
+  const form = useForm<AddProgramForm>({
+    resolver: zodResolver(addProgramSchema),
+    defaultValues: { programId: "" },
+  });
 
   const handleRefresh = useCallback(
     async (programId: string) => {
@@ -51,6 +82,31 @@ export function ProgramBrowser() {
       }
     },
     [rpcEndpoint, refreshProgram],
+  );
+
+  const onSubmit = useCallback(
+    async (data: AddProgramForm) => {
+      const programId = data.programId;
+      try {
+        const idl = await fetchIdl(programId, rpcEndpoint);
+        if (!idl) {
+          form.setError("programId", { message: "No IDL found for this program" });
+          return;
+        }
+        setIdl(programId, idl);
+        const entry: ProgramEntry = {
+          programId,
+          programName: idl.metadata?.name ?? programId,
+          idlFetchedAt: Date.now(),
+          idl,
+        };
+        saveProgram(entry);
+        form.reset();
+      } catch {
+        form.setError("programId", { message: "Failed to fetch IDL" });
+      }
+    },
+    [rpcEndpoint, saveProgram, form],
   );
 
   const handleToggle = useCallback(
@@ -80,6 +136,50 @@ export function ProgramBrowser() {
             Programs with IDLs discovered during exploration. Select one to browse its PDAs.
           </SheetDescription>
         </SheetHeader>
+
+        {/* Add program by ID */}
+        <div className="px-4 pb-3 space-y-1.5">
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)}>
+              <FormField
+                control={form.control}
+                name="programId"
+                render={({ field }) => (
+                  <FormItem>
+                    <div className="flex gap-2">
+                      <FormControl>
+                        <Input
+                          placeholder="Program ID (base58)..."
+                          {...field}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              form.handleSubmit(onSubmit)();
+                            }
+                          }}
+                          className="font-mono text-xs flex-1"
+                          disabled={form.formState.isSubmitting}
+                        />
+                      </FormControl>
+                      <Button
+                        size="sm"
+                        type="submit"
+                        disabled={form.formState.isSubmitting || !form.watch("programId").trim()}
+                      >
+                        {form.formState.isSubmitting ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <Plus className="size-3.5" />
+                        )}
+                      </Button>
+                    </div>
+                    <FormMessage className="text-[11px]" />
+                  </FormItem>
+                )}
+              />
+            </form>
+          </Form>
+        </div>
 
         {savedPrograms.length === 0 ? (
           <div className="px-4 py-8 text-center text-xs text-muted-foreground">
@@ -136,13 +236,22 @@ export function ProgramBrowser() {
 
                 {expandedProgramId === program.programId && (
                   <div className="border-t p-2">
-                    <PdaExplorer program={program} />
+                    {program.idl ? (
+                      <PdaExplorer program={program} />
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground p-2">
+                        <Loader2 className="size-3 animate-spin" />
+                        Fetching IDL...
+                      </div>
+                    )}
                   </div>
                 )}
 
                 <div className="px-2 pb-1.5">
                   <span className="text-[9px] text-muted-foreground">
-                    Fetched {new Date(program.idlFetchedAt).toLocaleDateString()}
+                    {program.idlFetchedAt
+                      ? `Fetched ${new Date(program.idlFetchedAt).toLocaleDateString()}`
+                      : "IDL not loaded"}
                   </span>
                 </div>
               </div>

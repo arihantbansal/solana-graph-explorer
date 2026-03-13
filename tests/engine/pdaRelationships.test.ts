@@ -12,14 +12,14 @@ function makeIdl(instructions: IdlInstruction[]): Idl {
 }
 
 describe("inferPdaRelationships", () => {
-  it("extracts PDA seed relationships from IDL instruction accounts", () => {
+  it("extracts PDA seed relationships when account type matches PDA name", () => {
     const idl = makeIdl([
       {
         name: "initialize",
         discriminator: [0],
         accounts: [
           {
-            name: "myPda",
+            name: "my_pda",
             pda: {
               seeds: [
                 { kind: "const", value: [109, 121] }, // "my"
@@ -36,7 +36,7 @@ describe("inferPdaRelationships", () => {
       authority: "AuthAddr1111111111111111111111111111111111111",
     };
 
-    const result = inferPdaRelationships(SOURCE, decodedData, idl);
+    const result = inferPdaRelationships(SOURCE, decodedData, idl, "MyPda");
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
@@ -49,7 +49,34 @@ describe("inferPdaRelationships", () => {
     });
   });
 
-  it("handles seeds with kind 'account' — creates edge", () => {
+  it("skips PDA accounts that don't match the source account type", () => {
+    const idl = makeIdl([
+      {
+        name: "approve_program_v0",
+        discriminator: [0],
+        accounts: [
+          {
+            name: "some_other_account",
+            pda: {
+              seeds: [{ kind: "account", path: "dao" }],
+            },
+          },
+        ],
+        args: [],
+      },
+    ]);
+
+    const decodedData = {
+      dao: "DaoAddr1111111111111111111111111111111111111",
+    };
+
+    // KeyToAssetV0 doesn't match "some_other_account"
+    const result = inferPdaRelationships(SOURCE, decodedData, idl, "KeyToAssetV0");
+
+    expect(result).toHaveLength(0);
+  });
+
+  it("matches account type with version suffix stripped", () => {
     const idl = makeIdl([
       {
         name: "update",
@@ -58,9 +85,7 @@ describe("inferPdaRelationships", () => {
           {
             name: "config",
             pda: {
-              seeds: [
-                { kind: "account", path: "owner" },
-              ],
+              seeds: [{ kind: "account", path: "owner" }],
             },
           },
         ],
@@ -72,7 +97,8 @@ describe("inferPdaRelationships", () => {
       owner: "OwnerAddr11111111111111111111111111111111111",
     };
 
-    const result = inferPdaRelationships(SOURCE, decodedData, idl);
+    // "ConfigV0" → "config_v0", stripped → "config" matches "config"
+    const result = inferPdaRelationships(SOURCE, decodedData, idl, "ConfigV0");
 
     expect(result).toHaveLength(1);
     expect(result[0].targetAddress).toBe(
@@ -99,7 +125,7 @@ describe("inferPdaRelationships", () => {
       },
     ]);
 
-    const result = inferPdaRelationships(SOURCE, {}, idl);
+    const result = inferPdaRelationships(SOURCE, {}, idl, "Vault");
 
     expect(result).toHaveLength(0);
   });
@@ -128,20 +154,20 @@ describe("inferPdaRelationships", () => {
       owner: "OwnerAddr11111111111111111111111111111111111",
     };
 
-    const result = inferPdaRelationships(SOURCE, decodedData, idl);
+    const result = inferPdaRelationships(SOURCE, decodedData, idl, "Item");
 
     expect(result).toHaveLength(1);
     expect(result[0].isPartial).toBe(true);
   });
 
-  it("works with multiple instructions", () => {
+  it("works with multiple instructions matching the same type", () => {
     const idl = makeIdl([
       {
         name: "instrA",
         discriminator: [10],
         accounts: [
           {
-            name: "pdaA",
+            name: "my_account",
             pda: {
               seeds: [{ kind: "account", path: "mint" }],
             },
@@ -154,7 +180,7 @@ describe("inferPdaRelationships", () => {
         discriminator: [11],
         accounts: [
           {
-            name: "pdaB",
+            name: "my_account",
             pda: {
               seeds: [{ kind: "account", path: "authority" }],
             },
@@ -169,7 +195,7 @@ describe("inferPdaRelationships", () => {
       authority: "AuthAddr1111111111111111111111111111111111111",
     };
 
-    const result = inferPdaRelationships(SOURCE, decodedData, idl);
+    const result = inferPdaRelationships(SOURCE, decodedData, idl, "MyAccount");
 
     expect(result).toHaveLength(2);
     expect(result[0].instructionName).toBe("instrA");
@@ -177,14 +203,13 @@ describe("inferPdaRelationships", () => {
   });
 
   it("deduplicates relationships", () => {
-    // Two instructions with the same PDA seed referencing the same field
     const idl = makeIdl([
       {
         name: "instrA",
         discriminator: [10],
         accounts: [
           {
-            name: "pdaA",
+            name: "pda_a",
             pda: {
               seeds: [{ kind: "account", path: "mint" }],
             },
@@ -197,7 +222,7 @@ describe("inferPdaRelationships", () => {
         discriminator: [10],
         accounts: [
           {
-            name: "pdaA",
+            name: "pda_a",
             pda: {
               seeds: [{ kind: "account", path: "mint" }],
             },
@@ -211,7 +236,7 @@ describe("inferPdaRelationships", () => {
       mint: "MintAddr1111111111111111111111111111111111111",
     };
 
-    const result = inferPdaRelationships(SOURCE, decodedData, idl);
+    const result = inferPdaRelationships(SOURCE, decodedData, idl, "PdaA");
 
     expect(result).toHaveLength(1);
   });
@@ -229,8 +254,35 @@ describe("inferPdaRelationships", () => {
       },
     ]);
 
-    const result = inferPdaRelationships(SOURCE, {}, idl);
+    const result = inferPdaRelationships(SOURCE, {}, idl, "Signer");
 
     expect(result).toHaveLength(0);
+  });
+
+  it("falls back to matching all PDAs when no accountType provided", () => {
+    const idl = makeIdl([
+      {
+        name: "initialize",
+        discriminator: [0],
+        accounts: [
+          {
+            name: "any_pda",
+            pda: {
+              seeds: [{ kind: "account", path: "authority" }],
+            },
+          },
+        ],
+        args: [],
+      },
+    ]);
+
+    const decodedData = {
+      authority: "AuthAddr1111111111111111111111111111111111111",
+    };
+
+    // No accountType — should still find relationships (backward compat)
+    const result = inferPdaRelationships(SOURCE, decodedData, idl);
+
+    expect(result).toHaveLength(1);
   });
 });

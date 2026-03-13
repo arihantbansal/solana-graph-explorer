@@ -247,10 +247,13 @@ function readField(
   }
 
   if ("coption" in type) {
-    // COption uses u32 tag (0 = None, 1 = Some)
+    // COption uses u32 tag (0 = None, 1 = Some).
+    // Unlike Borsh Option, COption always allocates space for the inner value,
+    // so we must always read (and skip) the inner bytes.
     const tag = reader.readU32();
+    const value = readField(reader, type.coption, idl);
     if (tag === 0) return null;
-    return readField(reader, type.coption, idl);
+    return value;
   }
 
   if ("array" in type) {
@@ -264,10 +267,71 @@ function readField(
     if (!typeDef) {
       throw new Error(`Defined type not found: ${name}`);
     }
-    return decodeStruct(reader, typeDef, idl);
+    return decodeDefinedType(reader, typeDef, idl);
   }
 
   throw new Error(`Unknown type: ${JSON.stringify(type)}`);
+}
+
+// --- Defined type decoder (dispatches to struct or enum) ---
+
+function decodeDefinedType(
+  reader: BorshReader,
+  typeDef: IdlTypeDef,
+  idl: Idl,
+): unknown {
+  if (typeDef.type.kind === "enum") {
+    return decodeEnum(reader, typeDef, idl);
+  }
+  return decodeStruct(reader, typeDef, idl);
+}
+
+// --- Enum decoder ---
+
+function decodeEnum(
+  reader: BorshReader,
+  typeDef: IdlTypeDef,
+  idl: Idl,
+): unknown {
+  const variants = typeDef.type.variants;
+  if (!variants) {
+    throw new Error(`Enum type has no variants: ${typeDef.name}`);
+  }
+
+  const variantIndex = reader.readU8();
+  if (variantIndex >= variants.length) {
+    throw new Error(
+      `Enum variant index ${variantIndex} out of range for ${typeDef.name} (${variants.length} variants)`,
+    );
+  }
+
+  const variant = variants[variantIndex];
+
+  // Simple enum (no fields) — return the variant name as a string
+  if (!variant.fields || variant.fields.length === 0) {
+    return variant.name;
+  }
+
+  // Enum with named fields (struct-like): fields are IdlField[]
+  // Enum with tuple fields: fields are IdlType[]
+  const fields = variant.fields;
+  if (typeof fields[0] === "object" && "name" in fields[0]) {
+    // Named fields (struct-like variant)
+    const result: Record<string, unknown> = { _variant: variant.name };
+    for (const field of fields as { name: string; type: IdlType }[]) {
+      result[field.name] = readField(reader, field.type, idl);
+    }
+    return result;
+  }
+
+  // Tuple fields
+  const tupleValues = (fields as IdlType[]).map((fieldType) =>
+    readField(reader, fieldType, idl),
+  );
+  if (tupleValues.length === 1) {
+    return { _variant: variant.name, value: tupleValues[0] };
+  }
+  return { _variant: variant.name, values: tupleValues };
 }
 
 // --- Struct decoder ---

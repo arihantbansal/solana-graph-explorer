@@ -1,0 +1,1 @@
+- [project_patterns.md](project_patterns.md) — Shared utilities, component conventions, and recurring code patterns in this codebase

@@ -78,5 +78,48 @@ export const tokenIdl: Idl = {
         ],
       },
     },
+    {
+      name: "SimpleEnum",
+      type: {
+        kind: "enum",
+        variants: [
+          { name: "Active" },
+          { name: "Inactive" },
+          { name: "Pending" },
+        ],
+      },
+    },
+    {
+      name: "EnumWithFields",
+      type: {
+        kind: "enum",
+        variants: [
+          { name: "None" },
+          {
+            name: "Transfer",
+            fields: [
+              { name: "amount", type: "u64" },
+              { name: "recipient", type: "pubkey" },
+            ],
+          },
+          {
+            name: "Memo",
+            fields: [
+              { name: "text", type: "string" },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      name: "structWithEnum",
+      type: {
+        kind: "struct",
+        fields: [
+          { name: "status", type: { defined: { name: "SimpleEnum" } } },
+          { name: "value", type: "u32" },
+        ],
+      },
+    },
   ],
 };

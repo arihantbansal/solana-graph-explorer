@@ -155,58 +155,71 @@ describe("encodeSeedValue", () => {
 });
 
 describe("seedInputToBytes", () => {
-  it("handles const seeds with byte arrays", () => {
+  it("handles const seeds with byte arrays", async () => {
     const input: SeedInputValue = {
       seed: { kind: "const", value: [1, 2, 3] },
       value: "",
     };
-    expect(seedInputToBytes(input)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(await seedInputToBytes(input)).toEqual(new Uint8Array([1, 2, 3]));
   });
 
-  it("handles const seeds with string values", () => {
+  it("handles const seeds with string values", async () => {
     const input: SeedInputValue = {
       seed: { kind: "const", value: "hello" },
       value: "",
     };
-    expect(seedInputToBytes(input)).toEqual(
+    expect(await seedInputToBytes(input)).toEqual(
       new Uint8Array([104, 101, 108, 108, 111]),
     );
   });
 
-  it("handles account seeds as base58 pubkeys", () => {
+  it("handles account seeds as base58 pubkeys", async () => {
     // "11111111111111111111111111111111" is the system program (32 zero bytes)
     const input: SeedInputValue = {
       seed: { kind: "account", path: "authority" },
       value: "11111111111111111111111111111111",
     };
-    const bytes = seedInputToBytes(input);
+    const bytes = await seedInputToBytes(input);
     expect(bytes).toHaveLength(32);
     // All zeros for the system program address
     expect(bytes.every((b) => b === 0)).toBe(true);
   });
 
-  it("handles arg seeds with utf8 encoding by default", () => {
+  it("handles arg seeds with utf8 encoding by default", async () => {
     const input: SeedInputValue = {
       seed: { kind: "arg", path: "name" },
       value: "test",
     };
-    expect(seedInputToBytes(input)).toEqual(
+    expect(await seedInputToBytes(input)).toEqual(
       new Uint8Array([116, 101, 115, 116]),
     );
   });
 
-  it("handles arg seeds with hex encoding", () => {
+  it("handles arg seeds with hex encoding", async () => {
     const input: SeedInputValue = {
       seed: { kind: "arg", path: "data" },
       value: "ff00",
       bufferEncoding: "hex",
     };
-    expect(seedInputToBytes(input)).toEqual(new Uint8Array([255, 0]));
+    expect(await seedInputToBytes(input)).toEqual(new Uint8Array([255, 0]));
+  });
+
+  it("applies sha256 transform", async () => {
+    const input: SeedInputValue = {
+      seed: { kind: "arg", path: "name" },
+      value: "test",
+      transform: "sha256",
+    };
+    const result = await seedInputToBytes(input);
+    // SHA-256 always produces 32 bytes
+    expect(result).toHaveLength(32);
+    // Should NOT equal the raw utf8 bytes
+    expect(result).not.toEqual(new Uint8Array([116, 101, 115, 116]));
   });
 });
 
 describe("buildSeedBuffers", () => {
-  it("builds array of seed buffers from inputs", () => {
+  it("builds array of seed buffers from inputs", async () => {
     const inputs: SeedInputValue[] = [
       { seed: { kind: "const", value: "prefix" }, value: "" },
       {
@@ -214,7 +227,7 @@ describe("buildSeedBuffers", () => {
         value: "11111111111111111111111111111111",
       },
     ];
-    const buffers = buildSeedBuffers(inputs);
+    const buffers = await buildSeedBuffers(inputs);
     expect(buffers).toHaveLength(2);
     expect(buffers[0]).toEqual(new TextEncoder().encode("prefix"));
     expect(buffers[1]).toHaveLength(32);

@@ -150,3 +150,34 @@ function buildNestedStructData(): Uint8Array {
 }
 
 export const nestedStructData = buildNestedStructData();
+
+/**
+ * Data for struct containing a simple enum field.
+ * structWithEnum: { status: SimpleEnum, value: u32 }
+ * SimpleEnum variant index 1 = "Inactive"
+ */
+function buildStructWithEnumData(): Uint8Array {
+  const valLE = new Uint8Array(4);
+  new DataView(valLE.buffer).setUint32(0, 42, true);
+  return concat([1], valLE); // enum variant 1 + u32
+}
+
+export const structWithEnumData = buildStructWithEnumData();
+
+/**
+ * Data for enum with named fields.
+ * EnumWithFields::Transfer { amount: u64, recipient: pubkey }
+ * Variant index 1 = "Transfer"
+ */
+function buildEnumWithFieldsData(): Uint8Array {
+  const amountLE = new Uint8Array(8);
+  new DataView(amountLE.buffer).setBigUint64(0, 5000n, true);
+  return concat([1], amountLE, testPubkeyBytes); // variant 1 + u64 + pubkey
+}
+
+export const enumWithFieldsData = buildEnumWithFieldsData();
+
+/**
+ * Simple enum variant 0 = "Active"
+ */
+export const simpleEnumData = new Uint8Array([0]);

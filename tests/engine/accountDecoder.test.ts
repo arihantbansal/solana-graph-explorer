@@ -12,6 +12,9 @@ import {
   mintAccountData,
   unknownAccountData,
   nestedStructData,
+  structWithEnumData,
+  enumWithFieldsData,
+  simpleEnumData,
   testPubkeyBytes,
   testPubkeyBase58,
 } from "../fixtures/accountData";
@@ -261,5 +264,13 @@ describe("decodeAccountData", () => {
     expect(inner.x).toBe(-42);
     expect(inner.y).toBe(9999999999n);
     expect(decoded.value).toBe(77);
+  });
+
+  it("decodes a struct containing a simple enum field", () => {
+    const typeDef = tokenIdl.types!.find((t) => t.name === "structWithEnum")!;
+    const decoded = decodeStructData(structWithEnumData, typeDef, tokenIdl);
+
+    expect(decoded.status).toBe("Inactive"); // variant index 1
+    expect(decoded.value).toBe(42);
   });
 });

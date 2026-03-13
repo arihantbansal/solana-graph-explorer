@@ -1,3 +1,6 @@
+import type { BufferEncoding, SeedTransform } from "./pdaExplorer";
+import type { IdlSeed } from "./idl";
+
 export type RelationshipType = "has_one" | "pda_seed" | "token" | "user_defined";
 
 export interface BaseRelationship {
@@ -27,6 +30,7 @@ export interface TokenRelationship extends BaseRelationship {
 export interface UserDefinedRelationship extends BaseRelationship {
   type: "user_defined";
   id: string; // unique ID for persistence
+  ruleId: string; // which rule generated this
 }
 
 export type Relationship =
@@ -35,6 +39,31 @@ export type Relationship =
   | TokenRelationship
   | UserDefinedRelationship;
 
+// --- PDA Relationship Rules ---
+
+export type SeedSource =
+  | { kind: "idl_const"; transform?: SeedTransform }                                        // auto-filled from PDA definition
+  | { kind: "field"; fieldName: string; transform?: SeedTransform }                         // from source node's decodedData
+  | { kind: "source_address"; transform?: SeedTransform }                                   // source node's address as pubkey
+  | { kind: "const"; value: string; encoding: BufferEncoding; transform?: SeedTransform };  // user-provided constant
+
+export interface SeedMapping {
+  seedIndex: number;
+  seed: IdlSeed;         // stored so derivation works without re-fetching IDL
+  source: SeedSource;
+}
+
+export interface PdaRelationshipRule {
+  id: string;
+  label: string;
+  sourceAccountType: string;   // e.g. "KeyToAssetV0"
+  sourceProgram: string;       // program ID for stable matching
+  targetPdaName: string;       // human label from PdaDefinition.name
+  targetProgramId: string;     // program that owns the PDA
+  seedMappings: SeedMapping[];
+}
+
+/** @deprecated - kept for backwards compat migration. Use PdaRelationshipRule instead. */
 export interface UserRelationshipDef {
   id: string;
   fromAddress: string;
