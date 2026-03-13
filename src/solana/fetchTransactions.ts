@@ -1,4 +1,4 @@
-import type { ParsedTransaction, TransactionPage, TokenBalance } from "@/types/transaction";
+import type { ParsedTransaction, TransactionPage } from "@/types/transaction";
 import type { Idl } from "@/types/idl";
 import { getRpc } from "./rpc";
 import { getIdl, setIdl } from "./idlCache";
@@ -6,10 +6,8 @@ import { fetchIdl } from "./fetchIdl";
 import { decodeInstruction } from "@/engine/instructionDecoder";
 import { address, signature } from "@solana/kit";
 import {
-  mapRpcInstruction,
   appendLoadedAddresses,
   buildParsedTransaction,
-  coerceTokenBalance,
 } from "./transactionMapping";
 
 // Cache whether the current RPC supports Helius-specific methods
