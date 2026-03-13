@@ -9,14 +9,12 @@ import { flattenArgs } from "@/utils/flattenArgs";
 
 const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
 const CLUSTER_PADDING = 50;
-const NODE_WIDTH = 280;
-const NODE_HEIGHT = 220;
 const ARGS_ROW_HEIGHT = 20;
 const ARGS_CHROME = 48; // padding + header + card border
 const ARGS_GAP = 60;
 const CLUSTER_GAP_Y = 140;
 const ACCOUNT_GAP_X = 380;
-const ACCOUNT_GAP_Y = 320;
+const ACCOUNT_GAP_Y = 400;
 
 /** Metadata about an inner (CPI) instruction within a top-level cluster. */
 export interface InnerInstruction {

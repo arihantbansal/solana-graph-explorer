@@ -105,8 +105,11 @@ async function decodeTransactionInstructions(
       let idl = getIdl(pid);
       if (!idl) {
         try {
-          idl = await fetchIdl(pid, rpcUrl);
-          if (idl) setIdl(pid, idl);
+          const fetched = await fetchIdl(pid, rpcUrl);
+          if (fetched) {
+            idl = fetched;
+            setIdl(pid, idl);
+          }
         } catch {
           // IDL fetch failed — skip
         }
@@ -270,6 +273,7 @@ async function fetchViaStandardRpc(
     sigs.map((sigInfo) =>
       rpc
         .getTransaction(signature(String(sigInfo.signature)), {
+          encoding: "jsonParsed",
           maxSupportedTransactionVersion: 0,
         })
         .send()

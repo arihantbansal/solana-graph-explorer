@@ -26,9 +26,44 @@ export interface DasGetAssetResponse {
   };
 }
 
+// Cache: address → DasAssetInfo | null (null = confirmed no asset)
+const assetCache = new Map<string, DasAssetInfo | null>();
+// Track in-flight requests to deduplicate concurrent calls for the same address
+const inflightRequests = new Map<string, Promise<DasAssetInfo | null>>();
+
+export function clearAssetCache(): void {
+  assetCache.clear();
+  inflightRequests.clear();
+}
+
 export async function detectAsset(
   mintAddress: string,
   rpcEndpoint: string
+): Promise<DasAssetInfo | null> {
+  // Return cached result
+  if (assetCache.has(mintAddress)) {
+    return assetCache.get(mintAddress) ?? null;
+  }
+
+  // Deduplicate concurrent requests for the same address
+  const inflight = inflightRequests.get(mintAddress);
+  if (inflight) return inflight;
+
+  const promise = _fetchAsset(mintAddress, rpcEndpoint);
+  inflightRequests.set(mintAddress, promise);
+
+  try {
+    const result = await promise;
+    assetCache.set(mintAddress, result);
+    return result;
+  } finally {
+    inflightRequests.delete(mintAddress);
+  }
+}
+
+async function _fetchAsset(
+  mintAddress: string,
+  rpcEndpoint: string,
 ): Promise<DasAssetInfo | null> {
   try {
     const response = await fetch(rpcEndpoint, {

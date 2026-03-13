@@ -4,11 +4,10 @@ import {
   getAddressEncoder,
   address,
   createAddressWithSeed,
-  fetchEncodedAccount,
 } from "@solana/kit";
-import type { Address } from "@solana/kit";
 import { decompressSync } from "fflate";
-import { getRpc } from "./rpc";
+import { fetchAccountsBatch } from "./fetchAccounts";
+import type { FetchedAccount } from "./fetchAccount";
 
 /**
  * Derive the legacy Anchor IDL account address.
@@ -66,7 +65,7 @@ export async function deriveMetadataIdlAddress(
  *
  * Total header before compressed data: 44 bytes
  */
-function parseAnchorIdlAccount(data: Uint8Array): Idl {
+export function parseAnchorIdlAccount(data: Uint8Array): Idl {
   const compressed = data.slice(44);
   const decompressed = decompressSync(compressed);
   const jsonStr = new TextDecoder().decode(decompressed);
@@ -85,7 +84,7 @@ function parseAnchorIdlAccount(data: Uint8Array): Idl {
  *   32 bytes - program key
  *   N bytes  - data payload
  */
-function parseMetadataIdlAccount(data: Uint8Array): Idl | null {
+export function parseMetadataIdlAccount(data: Uint8Array): Idl | null {
   if (data.length < 72) return null;
 
   const encoding = data[1];
@@ -104,44 +103,71 @@ function parseMetadataIdlAccount(data: Uint8Array): Idl | null {
 }
 
 /**
+ * Try to parse an IDL from already-fetched account data.
+ * Tries legacy Anchor format first, then Program Metadata format.
+ */
+export function tryParseIdlFromAccount(account: FetchedAccount): Idl | null {
+  try {
+    return parseAnchorIdlAccount(account.data);
+  } catch { /* not legacy format */ }
+  try {
+    return parseMetadataIdlAccount(account.data);
+  } catch { /* not metadata format */ }
+  return null;
+}
+
+/**
  * Fetch and decode an Anchor IDL from on-chain data.
  *
- * Tries two sources in order:
- *   1. Legacy Anchor IDL account (createWithSeed derivation)
- *   2. Program Metadata IDL account (new standard)
+ * Derives both legacy + metadata IDL addresses and fetches them in a single
+ * batched getMultipleAccounts call.
  */
 export async function fetchIdl(
   programId: string,
   rpcUrl: string,
 ): Promise<Idl | null> {
-  const rpc = getRpc(rpcUrl);
+  // Derive both addresses in parallel
+  const derivations = await Promise.allSettled([
+    deriveIdlAddress(programId),
+    deriveMetadataIdlAddress(programId),
+  ]);
 
-  // Try legacy Anchor IDL first
-  try {
-    const idlAddr = await deriveIdlAddress(programId);
-    const account = await fetchEncodedAccount(
-      rpc,
-      address(idlAddr) as Address,
-    );
-    if (account.exists) {
-      return parseAnchorIdlAccount(account.data as Uint8Array);
-    }
-  } catch {
-    // Legacy derivation failed — try metadata
+  const addrsToFetch: string[] = [];
+  let legacyAddr: string | null = null;
+  let metaAddr: string | null = null;
+
+  if (derivations[0].status === "fulfilled") {
+    legacyAddr = derivations[0].value;
+    addrsToFetch.push(legacyAddr);
+  }
+  if (derivations[1].status === "fulfilled") {
+    metaAddr = derivations[1].value;
+    addrsToFetch.push(metaAddr);
   }
 
-  // Try Program Metadata IDL
-  try {
-    const metaAddr = await deriveMetadataIdlAddress(programId);
-    const account = await fetchEncodedAccount(
-      rpc,
-      address(metaAddr) as Address,
-    );
-    if (account.exists) {
-      return parseMetadataIdlAccount(account.data as Uint8Array);
+  if (addrsToFetch.length === 0) return null;
+
+  // Single batched RPC call for both IDL accounts
+  const accountMap = await fetchAccountsBatch(addrsToFetch, rpcUrl);
+
+  // Try legacy first
+  if (legacyAddr) {
+    const account = accountMap.get(legacyAddr);
+    if (account) {
+      try {
+        return parseAnchorIdlAccount(account.data);
+      } catch { /* parse failed */ }
     }
-  } catch {
-    // Metadata derivation failed
+  }
+
+  // Try metadata
+  if (metaAddr) {
+    const account = accountMap.get(metaAddr);
+    if (account) {
+      try {
+        return parseMetadataIdlAccount(account.data);
+      } catch { /* parse failed */ }
+    }
   }
 
   return null;

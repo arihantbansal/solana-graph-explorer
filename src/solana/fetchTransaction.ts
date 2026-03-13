@@ -29,6 +29,7 @@ export async function fetchTransactionBySignature(
 
   const result = await rpc
     .getTransaction(toSignature(sig), {
+      encoding: "jsonParsed",
       maxSupportedTransactionVersion: 0,
     })
     .send();
@@ -39,7 +40,7 @@ export async function fetchTransactionBySignature(
 
   // Build account keys list from the message
   const accountKeys: string[] = (
-    transaction.message.accountKeys as { pubkey?: string; toBase58?: () => string }[] | string[]
+    transaction.message.accountKeys as unknown as ({ pubkey?: string; toBase58?: () => string } | string)[]
   ).map((k) => {
     if (typeof k === "string") return k;
     if (typeof k === "object" && k !== null) {
@@ -50,8 +51,8 @@ export async function fetchTransactionBySignature(
   });
 
   // For v0 transactions, append loaded addresses
-  if (meta?.loadedAddresses) {
-    const loaded = meta.loadedAddresses as {
+  if ((meta as Record<string, unknown>)?.loadedAddresses) {
+    const loaded = (meta as Record<string, unknown>).loadedAddresses as {
       writable?: string[];
       readonly?: string[];
     };
@@ -67,29 +68,18 @@ export async function fetchTransactionBySignature(
     }
   }
 
-  // Map instructions
+  // Map instructions — handles both jsonParsed format (programId + string accounts)
+  // and json format (programIdIndex + numeric account indices)
   const instructions = (
-    transaction.message.instructions as {
-      programIdIndex: number | bigint;
-      accounts: (number | bigint)[];
-      data: string;
-    }[]
-  ).map((ix) => ({
-    programId: accountKeys[Number(ix.programIdIndex)] ?? String(ix.programIdIndex),
-    accounts: (ix.accounts ?? []).map((idx) => accountKeys[Number(idx)] ?? String(idx)),
-    data: ix.data ?? "",
-  }));
+    transaction.message.instructions as unknown as Record<string, unknown>[]
+  ).map((ix) => mapRpcInstruction(ix, accountKeys));
 
   // Map inner instructions
   const innerInstructions = (
-    (meta?.innerInstructions as { index: number | bigint; instructions: { programIdIndex: number | bigint; accounts: (number | bigint)[]; data: string }[] }[]) ?? []
+    (meta?.innerInstructions as unknown as { index: number | bigint; instructions: Record<string, unknown>[] }[]) ?? []
   ).map((inner) => ({
     index: Number(inner.index),
-    instructions: inner.instructions.map((ix) => ({
-      programId: accountKeys[Number(ix.programIdIndex)] ?? String(ix.programIdIndex),
-      accounts: (ix.accounts ?? []).map((idx) => accountKeys[Number(idx)] ?? String(idx)),
-      data: ix.data ?? "",
-    })),
+    instructions: inner.instructions.map((ix) => mapRpcInstruction(ix, accountKeys)),
   }));
 
   return {
@@ -102,9 +92,37 @@ export async function fetchTransactionBySignature(
     instructions,
     innerInstructions,
     logMessages: (meta?.logMessages as string[]) ?? [],
-    preBalances: ((meta?.preBalances as (number | bigint)[]) ?? []).map((v) => Number(v)),
-    postBalances: ((meta?.postBalances as (number | bigint)[]) ?? []).map((v) => Number(v)),
-    preTokenBalances: ((meta?.preTokenBalances ?? []) as Record<string, unknown>[]).map(coerceTokenBalance),
-    postTokenBalances: ((meta?.postTokenBalances ?? []) as Record<string, unknown>[]).map(coerceTokenBalance),
+    preBalances: ((meta?.preBalances as unknown as (number | bigint)[]) ?? []).map((v) => Number(v)),
+    postBalances: ((meta?.postBalances as unknown as (number | bigint)[]) ?? []).map((v) => Number(v)),
+    preTokenBalances: ((meta?.preTokenBalances ?? []) as unknown as Record<string, unknown>[]).map(coerceTokenBalance),
+    postTokenBalances: ((meta?.postTokenBalances ?? []) as unknown as Record<string, unknown>[]).map(coerceTokenBalance),
+  };
+}
+
+/**
+ * Map a single RPC instruction to our ParsedInstruction type.
+ * Handles both jsonParsed format (programId + string accounts) and
+ * json format (programIdIndex + numeric account indices).
+ */
+function mapRpcInstruction(
+  ix: Record<string, unknown>,
+  accountKeys: string[],
+): { programId: string; accounts: string[]; data: string } {
+  // jsonParsed format: programId is a direct string, accounts are address strings
+  // json format: programIdIndex is a number, accounts are numeric indices
+  const programIdIndex = ix.programIdIndex as number | bigint | undefined;
+  const programId = programIdIndex != null
+    ? accountKeys[Number(programIdIndex)] ?? String(programIdIndex)
+    : (ix.programId as string) ?? "";
+
+  const rawAccounts = (ix.accounts ?? []) as (number | bigint | string)[];
+  const accounts = rawAccounts.map((acc) =>
+    typeof acc === "string" ? acc : accountKeys[Number(acc)] ?? String(acc),
+  );
+
+  return {
+    programId,
+    accounts,
+    data: (ix.data as string) ?? "",
   };
 }

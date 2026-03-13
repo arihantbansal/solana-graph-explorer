@@ -12,8 +12,8 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
     statusFilter: "all",
   });
 
-  const oldestSigRef = useRef<string | undefined>();
-  const currentAddressRef = useRef<string | undefined>();
+  const oldestSigRef = useRef<string | undefined>(undefined);
+  const currentAddressRef = useRef<string | undefined>(undefined);
 
   // Reset state when address changes
   useEffect(() => {

@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   parseAssetResponse,
   detectAsset,
+  clearAssetCache,
   type DasGetAssetResponse,
 } from "@/engine/assetDetection";
 
@@ -80,6 +81,10 @@ describe("parseAssetResponse", () => {
 });
 
 describe("detectAsset", () => {
+  beforeEach(() => {
+    clearAssetCache();
+  });
+
   it("returns null when DAS is unavailable (network error)", async () => {
     // Mock fetch to simulate network error
     const originalFetch = globalThis.fetch;

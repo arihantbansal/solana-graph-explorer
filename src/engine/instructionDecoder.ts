@@ -18,7 +18,7 @@ export function decodeInstruction(
 
   let dataBytes: Uint8Array;
   try {
-    dataBytes = base58Encoder.encode(instruction.data);
+    dataBytes = new Uint8Array(base58Encoder.encode(instruction.data));
   } catch {
     return null;
   }

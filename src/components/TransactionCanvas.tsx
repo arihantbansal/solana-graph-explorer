@@ -20,11 +20,10 @@ import type { Idl } from "@/types/idl";
 import type { AccountNode } from "@/types/graph";
 import {
   buildInstructionGraphs,
-  type InstructionCluster,
   type InstructionDetail,
 } from "@/engine/instructionGraphBuilder";
 import { getIdl } from "@/solana/idlCache";
-import { fetchAndDecode } from "@/engine/expandAccount";
+import { fetchAndDecode, fetchAndDecodeMany } from "@/engine/expandAccount";
 import { useGraph } from "@/contexts/GraphContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { AccountNodeComponent } from "@/components/AccountNode";
@@ -330,12 +329,12 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
     }
 
     (async () => {
-      const results = await Promise.allSettled(
-        Array.from(addrToNodeIds.entries()).map(async ([addr, nodeIds]) => {
-          const result = await fetchAndDecode(addr, rpcEndpoint);
-          return { addr, nodeIds, result };
-        }),
-      );
+      const uniqueAddrs = Array.from(addrToNodeIds.keys());
+      const batchMap = await fetchAndDecodeMany(uniqueAddrs, rpcEndpoint);
+      const results = Array.from(addrToNodeIds.entries()).map(([addr, nodeIds]) => ({
+        status: "fulfilled" as const,
+        value: { addr, nodeIds, result: batchMap.get(addr)! },
+      }));
 
       for (const settled of results) {
         if (settled.status !== "fulfilled") continue;
@@ -430,9 +429,11 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
     onInstructionSelect?.(null);
   }, [dispatch, onInstructionSelect]);
 
-  // Fit view on load
+  // Fit view once on initial load only
+  const initialFitDone = useRef(false);
   useEffect(() => {
-    if (nodes.length === 0) return;
+    if (nodes.length === 0 || initialFitDone.current) return;
+    initialFitDone.current = true;
 
     const t1 = setTimeout(() => {
       fitView({ duration: 300, padding: 0.1 });

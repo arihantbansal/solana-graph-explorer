@@ -14,7 +14,6 @@ import {
 import { useSettings, RPC_OPTIONS, type RpcEndpointKey } from "@/contexts/SettingsContext";
 import { useView } from "@/contexts/ViewContext";
 import { Search, Bookmark, Minus, Plus } from "lucide-react";
-import { base58AddressSchema } from "@/utils/validation";
 import { shortenAddress, isTxSignature } from "@/utils/format";
 import { useClearAndExplore } from "@/hooks/useClearAndExplore";
 

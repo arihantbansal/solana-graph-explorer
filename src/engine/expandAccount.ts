@@ -2,7 +2,8 @@ import type { Dispatch } from "react";
 import type { GraphAction } from "@/types/graph";
 import type { Idl, IdlTypeDef } from "@/types/idl";
 import { fetchAccount } from "@/solana/fetchAccount";
-import { fetchIdl } from "@/solana/fetchIdl";
+import { fetchAccountsBatch } from "@/solana/fetchAccounts";
+import { fetchIdl, deriveIdlAddress, deriveMetadataIdlAddress, tryParseIdlFromAccount } from "@/solana/fetchIdl";
 import { getIdl, setIdl, hasIdl } from "@/solana/idlCache";
 import { identifyAccountType, decodeAccountData, decodeStructData } from "./accountDecoder";
 import { identifyBuiltinAccount } from "@/solana/builtinIdls";
@@ -164,6 +165,172 @@ export async function fetchAndDecode(
       notFound: false,
     };
   }
+}
+
+/**
+ * Batch fetch + decode multiple accounts in as few RPC calls as possible.
+ * 1. Batch-fetches all accounts via getMultipleAccounts
+ * 2. Batch-fetches IDL accounts for unique owner programs
+ * 3. Decodes each account
+ */
+export async function fetchAndDecodeMany(
+  addresses: string[],
+  rpcUrl: string,
+  options?: ExpandOptions,
+): Promise<Map<string, FetchDecodeResult>> {
+  const results = new Map<string, FetchDecodeResult>();
+  if (addresses.length === 0) return results;
+
+  // Step 1: Batch fetch all accounts
+  const accountMap = await fetchAccountsBatch(addresses, rpcUrl);
+
+  // Step 2: Collect unique owner programs that need IDLs
+  const ownersNeedingIdl = new Set<string>();
+  for (const [, account] of accountMap) {
+    if (account && !hasIdl(account.owner)) {
+      ownersNeedingIdl.add(account.owner);
+    }
+  }
+
+  // Batch-fetch IDL accounts for all uncached owners
+  if (ownersNeedingIdl.size > 0) {
+    // Derive all IDL addresses in parallel
+    const derivations = await Promise.all(
+      Array.from(ownersNeedingIdl).map(async (programId) => {
+        const addrs: { programId: string; addr: string; type: "legacy" | "metadata" }[] = [];
+        const [legacy, meta] = await Promise.allSettled([
+          deriveIdlAddress(programId),
+          deriveMetadataIdlAddress(programId),
+        ]);
+        if (legacy.status === "fulfilled") addrs.push({ programId, addr: legacy.value, type: "legacy" });
+        if (meta.status === "fulfilled") addrs.push({ programId, addr: meta.value, type: "metadata" });
+        return addrs;
+      }),
+    );
+    const idlAddresses = derivations.flat();
+
+    if (idlAddresses.length > 0) {
+      // Single batched RPC call for ALL IDL accounts across all programs
+      const idlAccountMap = await fetchAccountsBatch(
+        idlAddresses.map((a) => a.addr),
+        rpcUrl,
+      );
+
+      // Group by programId and parse IDLs directly from batch results
+      const programIdlAddrs = new Map<string, typeof idlAddresses>();
+      for (const entry of idlAddresses) {
+        const existing = programIdlAddrs.get(entry.programId) ?? [];
+        existing.push(entry);
+        programIdlAddrs.set(entry.programId, existing);
+      }
+
+      for (const [programId, entries] of programIdlAddrs) {
+        if (hasIdl(programId)) continue;
+
+        // Try each IDL account (legacy first, then metadata) — parse directly, no re-fetch
+        for (const entry of entries) {
+          const acct = idlAccountMap.get(entry.addr);
+          if (!acct) continue;
+          const idl = tryParseIdlFromAccount(acct);
+          if (idl) {
+            setIdl(programId, idl);
+            options?.onIdlFetched?.(programId, idl);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Step 3: Decode each account using existing logic
+  for (const addr of addresses) {
+    const account = accountMap.get(addr);
+
+    if (!account) {
+      // Try DAS asset detection as fallback
+      try {
+        const asset = await detectAsset(addr, rpcUrl);
+        if (asset) {
+          results.set(addr, {
+            decodedData: asset.owner ? { owner: asset.owner } : null,
+            accountType: asset.isNft ? "NFT" : "Asset",
+            idl: null,
+            typeDef: null,
+            programId: null,
+            programName: asset.name,
+            balance: null,
+            thumbnail: asset.image ?? undefined,
+            error: undefined,
+            notFound: false,
+          });
+          continue;
+        }
+      } catch { /* DAS not available */ }
+
+      results.set(addr, {
+        decodedData: null,
+        accountType: "Not Found",
+        idl: null,
+        typeDef: null,
+        programId: null,
+        programName: null,
+        balance: null,
+        thumbnail: undefined,
+        error: undefined,
+        notFound: true,
+      });
+      continue;
+    }
+
+    const owner = account.owner;
+    let idl: Idl | null = null;
+    if (hasIdl(owner)) {
+      idl = getIdl(owner) ?? null;
+    }
+
+    let decodedData: Record<string, unknown> | null = null;
+    let accountType: string | null = null;
+    let typeDef: IdlTypeDef | null = null;
+    let programName: string | null = null;
+
+    const builtin = identifyBuiltinAccount(account.data.length, owner);
+    if (builtin) {
+      accountType = builtin.name;
+      typeDef = builtin.typeDef;
+      idl = idl ?? builtin.idl;
+      programName = idl.metadata?.name ?? owner;
+      try {
+        decodedData = decodeStructData(account.data, builtin.typeDef, builtin.idl);
+      } catch { /* decoding failed */ }
+    } else if (idl) {
+      programName = idl.metadata?.name ?? owner;
+      const identified = identifyAccountType(account.data, idl);
+      if (identified) {
+        accountType = identified.name;
+        typeDef = idl.types?.find((t) => t.name === identified.name) ?? null;
+        if (typeDef) {
+          try {
+            decodedData = decodeAccountData(account.data, typeDef, idl);
+          } catch { /* decoding failed */ }
+        }
+      }
+    }
+
+    results.set(addr, {
+      decodedData,
+      accountType,
+      idl,
+      typeDef,
+      programId: owner,
+      programName,
+      balance: Number(account.lamports),
+      thumbnail: undefined,
+      error: undefined,
+      notFound: false,
+    });
+  }
+
+  return results;
 }
 
 /**
@@ -380,23 +547,29 @@ export async function expandAccount(params: ExpandAccountParams): Promise<void> 
     if (stubEdges.length > 0) {
       dispatch({ type: "ADD_EDGES", edges: stubEdges });
     }
-    // Fetch and decode each collapsed node (applies data to graph) but skip expansion
-    await Promise.all(
-      collapsedNodes.map(async (node) => {
-        const result = await fetchAndDecode(node.id, rpcUrl, options);
-        applyResultToGraph(node.id, result, dispatch);
-      }),
+    // Batch fetch and decode all collapsed nodes
+    const collapsedResults = await fetchAndDecodeMany(
+      collapsedNodes.map((n) => n.id),
+      rpcUrl,
+      options,
     );
+    for (const node of collapsedNodes) {
+      const result = collapsedResults.get(node.id);
+      if (result) applyResultToGraph(node.id, result, dispatch);
+    }
   }
 
-  // Pre-load ALL normal child accounts in parallel before adding anything to the graph.
+  // Pre-load ALL normal child accounts in a single batched RPC call.
   // This avoids the flash where nodes appear briefly then get removed.
-  const preloadResults = await Promise.all(
-    normalNodes.map(async (node) => {
-      const result = await fetchAndDecode(node.id, rpcUrl, options);
-      return { node, result };
-    }),
+  const batchResults = await fetchAndDecodeMany(
+    normalNodes.map((n) => n.id),
+    rpcUrl,
+    options,
   );
+  const preloadResults = normalNodes.map((node) => ({
+    node,
+    result: batchResults.get(node.id)!,
+  }));
 
   // Filter out uninteresting nodes (no data, mints, etc.)
   const keptChildren = preloadResults.filter(
