@@ -1,73 +1,44 @@
-# React + TypeScript + Vite
+# Solana Account Graph Explorer
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+An interactive visual explorer for Solana blockchain accounts and their relationships. Paste in an account address or transaction signature and watch the graph unfold.
 
-Currently, two official plugins are available:
+> **This is a vibecoded side project, not a business or a product.** It was built for fun and to help debug my own problems as a dev. There are no guarantees, no roadmap, and no support team. If you find it useful and feel like tipping, my SOL wallet is:
+>
+> `noahyVQnQDw5w73eB6AAFs5J7evyqhcB3MCcRF3X7sg`
+>
+> I don't expect tips, but someone asked if they could. This is just for myself. Money will go towards beer and Claude tokens.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## What It Does
 
-## React Compiler
+**Graph-based account exploration** — Search for any Solana account and visualize it as an interactive node graph. Double-click nodes to expand them and discover connected accounts. The app fetches Anchor IDLs automatically to decode account data and infer relationships between accounts (has_one references, PDA seeds, token accounts, and custom rules you define).
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+**Transaction explorer** — Paste a transaction signature to see its logs, balance changes, and a visual instruction graph showing how accounts flow through each instruction.
 
-## Expanding the ESLint configuration
+**PDA explorer** — Browse programs you've visited, see their PDA definitions extracted from the IDL, fill in seed values through a dynamic form, and derive + fetch accounts directly into the graph.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+**Settings & customization** — Configure your RPC endpoint, label addresses with human-readable names, create custom relationship rules, control expansion depth, and export/import your entire configuration as JSON.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Running Locally
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+```bash
+# Install dependencies
+npm install
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Start dev server
+npm run dev
+
+# Run tests
+npm test
+
+# Build for production
+npm run build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Tech Stack
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- React 19, TypeScript, Vite
+- [@solana/kit](https://github.com/anza-xyz/solana-web3.js) for all Solana interaction
+- [@xyflow/react](https://reactflow.dev/) v12 for graph visualization
+- Tailwind CSS v4 + shadcn/ui
+- fflate for IDL decompression
+- vitest for testing
