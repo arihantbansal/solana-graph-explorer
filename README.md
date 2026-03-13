@@ -2,11 +2,7 @@
 
 An interactive visual explorer for Solana blockchain accounts and their relationships. Paste in an account address or transaction signature and watch the graph unfold.
 
-> **This is a vibecoded side project, not a business or a product.** It was built for fun and to help debug my own problems as a dev. There are no guarantees, no roadmap, and no support team. If you find it useful and feel like tipping, my SOL wallet is:
->
-> `noahyVQnQDw5w73eB6AAFs5J7evyqhcB3MCcRF3X7sg`
->
-> I don't expect tips, but someone asked if they could. I just built this for the love of the game, and for the hate of using other explorers to debug. Money will go towards beer and Claude tokens.
+> **This is a vibecoded side project, not a business or a product.** It was built for fun and to help debug my own problems as a dev. There are no guarantees, no roadmap, and no support team.
 
 ## What It Does
 
