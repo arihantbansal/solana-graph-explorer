@@ -31,7 +31,7 @@ const DEFAULT_EXPANSION_DEPTH = 2;
 /** Map of "accountType:fieldName" → preferred encoding */
 export type BytesEncodings = Record<string, BytesDisplayEncoding>;
 
-export type RpcEndpointKey = "mainnet" | "devnet" | "custom";
+export type RpcEndpointKey = "mainnet" | "devnet" | "local" | "custom";
 
 interface RpcOption {
   key: RpcEndpointKey;
@@ -40,8 +40,9 @@ interface RpcOption {
 }
 
 export const RPC_OPTIONS: RpcOption[] = [
-  { key: "mainnet", label: "Mainnet Beta", url: import.meta.env.VITE_RPC_MAINNET ?? "https://api.mainnet-beta.solana.com" },
+  { key: "mainnet", label: "Mainnet", url: import.meta.env.VITE_RPC_MAINNET ?? "https://api.mainnet-beta.solana.com" },
   { key: "devnet", label: "Devnet", url: import.meta.env.VITE_RPC_DEVNET ?? "https://api.devnet.solana.com" },
+  { key: "local", label: "Local", url: "http://127.0.0.1:8899" },
   { key: "custom", label: "Custom", url: "" },
 ];
 

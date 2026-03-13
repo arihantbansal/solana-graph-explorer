@@ -22,6 +22,9 @@ const MIN_WIDTH = 320;
 const DEFAULT_WIDTH = 420;
 const MAX_WIDTH = 800;
 
+/** Cache scroll positions per address so navigating back restores position */
+const scrollPositionCache = new Map<string, number>();
+
 export function NodeDetailPanel() {
   const { state, dispatch, selectedNode, getNodeEdges } = useGraph();
   const { rpcEndpoint, savedPrograms, saveProgram, collapsedAddresses, getBytesEncoding, setBytesEncoding, isCollapsedAddress, addCollapsedAddress, removeCollapsedAddress } = useSettings();
@@ -34,8 +37,32 @@ export function NodeDetailPanel() {
   const isDragging = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const prevAddressRef = useRef<string | null>(null);
 
   const isOpen = state.selectedNodeId !== null && selectedNode !== undefined;
+
+  // Save scroll position when switching away from a node
+  const currentAddress = selectedNode?.data.address ?? null;
+  if (currentAddress !== prevAddressRef.current) {
+    if (prevAddressRef.current && scrollRef.current) {
+      scrollPositionCache.set(prevAddressRef.current, scrollRef.current.scrollTop);
+    }
+    prevAddressRef.current = currentAddress;
+    // Restore scroll position for new node after render
+    if (currentAddress && scrollRef.current) {
+      const saved = scrollPositionCache.get(currentAddress);
+      scrollRef.current.scrollTop = saved ?? 0;
+    }
+  }
+
+  // Also restore after initial mount/render via effect
+  useEffect(() => {
+    if (currentAddress && scrollRef.current) {
+      const saved = scrollPositionCache.get(currentAddress);
+      scrollRef.current.scrollTop = saved ?? 0;
+    }
+  }, [currentAddress]);
   const edges = selectedNode ? getNodeEdges(selectedNode.id) : [];
 
   const existingNodeIds = new Set(state.nodes.map((n) => n.id));
@@ -76,7 +103,7 @@ export function NodeDetailPanel() {
   const content = (
     <>
       {/* Content */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 w-full flex flex-col">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 w-full flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 pb-2 sticky top-0 bg-background z-10 gap-2">
           <h3 className="text-sm font-semibold truncate">Account Details</h3>

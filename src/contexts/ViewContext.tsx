@@ -15,13 +15,16 @@ export interface ViewState {
   txData: TransactionViewData | null;
   txLoading: boolean;
   txError: string | null;
+  /** Address to explore after switching back from transaction mode */
+  pendingExplore: string | null;
 }
 
 export type ViewAction =
   | { type: "OPEN_TRANSACTION"; signature: string }
   | { type: "SET_TX_DATA"; data: TransactionViewData }
   | { type: "SET_TX_ERROR"; error: string }
-  | { type: "BACK_TO_GRAPH" };
+  | { type: "BACK_TO_GRAPH"; pendingExplore?: string }
+  | { type: "CLEAR_PENDING_EXPLORE" };
 
 const initialState: ViewState = {
   mode: "graph",
@@ -29,6 +32,7 @@ const initialState: ViewState = {
   txData: null,
   txLoading: false,
   txError: null,
+  pendingExplore: null,
 };
 
 function viewReducer(state: ViewState, action: ViewAction): ViewState {
@@ -63,6 +67,12 @@ function viewReducer(state: ViewState, action: ViewAction): ViewState {
         txData: null,
         txLoading: false,
         txError: null,
+        pendingExplore: action.pendingExplore ?? null,
+      };
+    case "CLEAR_PENDING_EXPLORE":
+      return {
+        ...state,
+        pendingExplore: null,
       };
   }
 }
@@ -71,7 +81,7 @@ interface ViewContextValue {
   state: ViewState;
   dispatch: Dispatch<ViewAction>;
   openTransaction: (signature: string) => void;
-  backToGraph: () => void;
+  backToGraph: (pendingExplore?: string) => void;
 }
 
 const ViewContext = createContext<ViewContextValue | null>(null);
@@ -90,11 +100,14 @@ export function ViewProvider({ children }: { children: ReactNode }) {
     [dispatch],
   );
 
-  const backToGraph = useCallback(() => {
+  const backToGraph = useCallback((pendingExplore?: string) => {
     const url = new URL(window.location.href);
     url.searchParams.delete("tx");
+    if (pendingExplore) {
+      url.searchParams.set("address", pendingExplore);
+    }
     window.history.pushState({}, "", url.toString());
-    dispatch({ type: "BACK_TO_GRAPH" });
+    dispatch({ type: "BACK_TO_GRAPH", pendingExplore });
   }, [dispatch]);
 
   const value = useMemo(

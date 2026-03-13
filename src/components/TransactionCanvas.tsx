@@ -48,6 +48,26 @@ interface TransactionCanvasInnerProps {
   onInstructionSelect?: (detail: InstructionDetail | null) => void;
 }
 
+/** Convert a FetchDecodeResult to the data shape needed for node enrichment. */
+function toEnrichData(result: import("@/engine/expandAccount").FetchDecodeResult): Record<string, unknown> {
+  if (result.error || result.notFound) {
+    return {
+      isLoading: false,
+      accountType: result.notFound ? "Not Found" : undefined,
+      error: result.error,
+    };
+  }
+  return {
+    isLoading: false,
+    programId: result.programId ?? undefined,
+    programName: result.programName ?? undefined,
+    balance: result.balance ?? undefined,
+    accountType: result.accountType ?? "Unknown",
+    decodedData: result.decodedData ?? undefined,
+    thumbnail: result.thumbnail,
+  };
+}
+
 function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanvasInnerProps) {
   const { fitView } = useReactFlow();
   const { state: graphState, dispatch } = useGraph();
@@ -169,7 +189,8 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
           source: sourceCanvasNode.id,
           target: canvasNodeId,
           label: relatedEdge.data?.fieldName ?? relatedEdge.data?.label ?? "",
-          style: { stroke: "hsl(var(--muted-foreground))", strokeWidth: 1 },
+          style: { stroke: "#6b7280", strokeWidth: 2 },
+          data: { label: relatedEdge.data?.fieldName ?? relatedEdge.data?.label ?? "", relationshipType: "has_one" },
         });
       }
 
@@ -209,16 +230,7 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
       (async () => {
         try {
           const result = await fetchAndDecode(addr, rpcEndpoint);
-          const enrichData = {
-            isLoading: false,
-            programId: result.programId ?? undefined,
-            programName: result.programName ?? undefined,
-            balance: result.balance ?? undefined,
-            accountType: result.accountType ?? (result.notFound ? "Not Found" : "Unknown"),
-            decodedData: result.decodedData ?? undefined,
-            thumbnail: result.thumbnail,
-            error: result.error,
-          };
+          const enrichData = toEnrichData(result);
           dispatch({ type: "SET_NODE_DATA", nodeId: canvasNodeId, data: enrichData });
           setNodes((prev) =>
             prev.map((n) =>
@@ -294,7 +306,6 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
     setEdges((prev) => {
       // Build set of visible node IDs after filtering
       const allVisibleNodes = new Set<string>();
-      prev; // just to reference
       for (const node of initialNodes) {
         if (node.type === "ixCluster") {
           allVisibleNodes.add(node.id);
@@ -331,61 +342,15 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
     (async () => {
       const uniqueAddrs = Array.from(addrToNodeIds.keys());
       const batchMap = await fetchAndDecodeMany(uniqueAddrs, rpcEndpoint);
-      const results = Array.from(addrToNodeIds.entries()).map(([addr, nodeIds]) => ({
-        status: "fulfilled" as const,
-        value: { addr, nodeIds, result: batchMap.get(addr)! },
-      }));
 
-      for (const settled of results) {
-        if (settled.status !== "fulfilled") continue;
-        const { nodeIds, result } = settled.value;
+      for (const [addr, nodeIds] of addrToNodeIds) {
+        const result = batchMap.get(addr);
+        if (!result) continue;
 
-        if (result.error || result.notFound) {
-          for (const nodeId of nodeIds) {
-            dispatch({
-              type: "SET_NODE_DATA",
-              nodeId,
-              data: {
-                isLoading: false,
-                accountType: result.notFound ? "Not Found" : undefined,
-                error: result.error,
-              },
-            });
-          }
-          setNodes((prev) =>
-            prev.map((n) =>
-              nodeIds.includes(n.id)
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      isLoading: false,
-                      accountType: result.notFound ? "Not Found" : (n.data as Record<string, unknown>).accountType,
-                      error: result.error,
-                    },
-                  }
-                : n,
-            ),
-          );
-          continue;
-        }
-
-        const enrichData = {
-          isLoading: false,
-          programId: result.programId ?? undefined,
-          programName: result.programName ?? undefined,
-          balance: result.balance ?? undefined,
-          accountType: result.accountType ?? "Unknown",
-          decodedData: result.decodedData ?? undefined,
-          thumbnail: result.thumbnail,
-        };
+        const enrichData = toEnrichData(result);
 
         for (const nodeId of nodeIds) {
-          dispatch({
-            type: "SET_NODE_DATA",
-            nodeId,
-            data: enrichData,
-          });
+          dispatch({ type: "SET_NODE_DATA", nodeId, data: enrichData });
         }
 
         setNodes((prev) =>

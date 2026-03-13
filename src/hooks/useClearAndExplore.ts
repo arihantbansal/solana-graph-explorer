@@ -70,13 +70,9 @@ export function useClearAndExplore() {
   return useCallback(
     (address: string, opts?: { skipSelect?: boolean }) => {
       if (viewState.mode === "transaction") {
-        // Switch back to graph mode first. The graph canvas remounts via
-        // ternary in App.tsx, so we need to wait for it to be in the DOM
-        // before dispatching graph operations.
-        backToGraph();
-        setTimeout(() => {
-          doExplore(address, opts);
-        }, 50);
+        // Pass the address through ViewContext so the outer graph context
+        // (which persists across mode switches) can pick it up and explore.
+        backToGraph(address);
       } else {
         doExplore(address, opts);
       }

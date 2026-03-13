@@ -1,11 +1,16 @@
-import type { ParsedTransaction, TransactionPage, ParsedInstruction, InnerInstructionSet, TokenBalance } from "@/types/transaction";
+import type { ParsedTransaction, TransactionPage, TokenBalance } from "@/types/transaction";
 import type { Idl } from "@/types/idl";
 import { getRpc } from "./rpc";
-import { getIdl } from "./idlCache";
+import { getIdl, setIdl } from "./idlCache";
 import { fetchIdl } from "./fetchIdl";
-import { setIdl } from "./idlCache";
 import { decodeInstruction } from "@/engine/instructionDecoder";
 import { address, signature } from "@solana/kit";
+import {
+  mapRpcInstruction,
+  appendLoadedAddresses,
+  buildParsedTransaction,
+  coerceTokenBalance,
+} from "./transactionMapping";
 
 // Cache whether the current RPC supports Helius-specific methods
 let heliusDetected: boolean | null = null;
@@ -201,44 +206,21 @@ function mapHeliusTx(raw: unknown): ParsedTransaction {
   const transaction = (tx.transaction || {}) as Record<string, unknown>;
   const message = (transaction.message || {}) as Record<string, unknown>;
 
-  const accountKeys = ((message.accountKeys as string[]) || []).map(String);
-
-  // For v0 transactions, append loaded addresses
-  const loadedAddresses = (meta.loadedAddresses || {}) as Record<string, string[]>;
-  const writableLoaded = (loadedAddresses.writable || []).map(String);
-  const readonlyLoaded = (loadedAddresses.readonly || []).map(String);
-  const allKeys = [...accountKeys, ...writableLoaded, ...readonlyLoaded];
-
-  const rawIxs = (message.instructions || []) as Record<string, unknown>[];
-  const instructions: ParsedInstruction[] = rawIxs.map((ix) => mapInstruction(ix, allKeys));
-
-  const innerIxSets = (meta.innerInstructions || []) as Record<string, unknown>[];
-  const innerInstructions: InnerInstructionSet[] = innerIxSets.map((set) => ({
-    index: (set.index as number) || 0,
-    instructions: ((set.instructions || []) as Record<string, unknown>[]).map((ix) =>
-      mapInstruction(ix, allKeys),
-    ),
-  }));
+  const staticKeys = ((message.accountKeys as string[]) || []).map(String);
+  const accountKeys = appendLoadedAddresses(staticKeys, meta);
 
   // Signature can be in tx.signature or in transaction.signatures[0]
   const signatures = (transaction.signatures || []) as string[];
   const sig = (tx.signature as string) || signatures[0] || "";
 
-  return {
+  return buildParsedTransaction({
     signature: sig,
-    slot: Number(tx.slot ?? 0),
-    blockTime: tx.blockTime != null ? Number(tx.blockTime) : null,
-    err: meta.err ?? null,
-    fee: Number(meta.fee ?? 0),
-    accountKeys: allKeys,
-    instructions,
-    innerInstructions,
-    logMessages: (meta.logMessages as string[]) || [],
-    preBalances: ((meta.preBalances || []) as (number | bigint)[]).map(Number),
-    postBalances: ((meta.postBalances || []) as (number | bigint)[]).map(Number),
-    preTokenBalances: (meta.preTokenBalances as TokenBalance[]) || [],
-    postTokenBalances: (meta.postTokenBalances as TokenBalance[]) || [],
-  };
+    slot: tx.slot as number | bigint ?? 0,
+    blockTime: tx.blockTime as number | bigint | null | undefined,
+    meta,
+    message,
+    accountKeys,
+  });
 }
 
 // --- Standard RPC fallback: getSignaturesForAddress + parallel getTransaction ---
@@ -300,58 +282,16 @@ function mapStandardTx(sig: string, tx: Record<string, unknown>): ParsedTransact
   const transaction = (tx.transaction || {}) as Record<string, unknown>;
   const message = (transaction.message || {}) as Record<string, unknown>;
 
-  // Build full account keys list
+  // Build full account keys list (handle staticAccountKeys fallback for some RPC responses)
   const staticKeys = ((message.accountKeys || message.staticAccountKeys || []) as string[]).map(String);
+  const accountKeys = appendLoadedAddresses(staticKeys, meta);
 
-  // For v0 transactions, append loaded addresses
-  const loadedAddresses = (meta.loadedAddresses || {}) as Record<string, string[]>;
-  const writableLoaded = (loadedAddresses.writable || []).map(String);
-  const readonlyLoaded = (loadedAddresses.readonly || []).map(String);
-  const accountKeys = [...staticKeys, ...writableLoaded, ...readonlyLoaded];
-
-  const rawIxs = (message.instructions || []) as Record<string, unknown>[];
-  const instructions: ParsedInstruction[] = rawIxs.map((ix) => mapInstruction(ix, accountKeys));
-
-  const innerIxSets = (meta.innerInstructions || []) as Record<string, unknown>[];
-  const innerInstructions: InnerInstructionSet[] = innerIxSets.map((set) => ({
-    index: (set.index as number) || 0,
-    instructions: ((set.instructions || []) as Record<string, unknown>[]).map((ix) =>
-      mapInstruction(ix, accountKeys),
-    ),
-  }));
-
-  return {
+  return buildParsedTransaction({
     signature: sig,
-    slot: Number(tx.slot ?? 0),
-    blockTime: tx.blockTime != null ? Number(tx.blockTime) : null,
-    err: meta.err ?? null,
-    fee: Number(meta.fee ?? 0),
+    slot: tx.slot as number | bigint ?? 0,
+    blockTime: tx.blockTime as number | bigint | null | undefined,
+    meta,
+    message,
     accountKeys,
-    instructions,
-    innerInstructions,
-    logMessages: (meta.logMessages as string[]) || [],
-    preBalances: ((meta.preBalances || []) as (number | bigint)[]).map(Number),
-    postBalances: ((meta.postBalances || []) as (number | bigint)[]).map(Number),
-    preTokenBalances: (meta.preTokenBalances as TokenBalance[]) || [],
-    postTokenBalances: (meta.postTokenBalances as TokenBalance[]) || [],
-  };
-}
-
-function mapInstruction(
-  ix: Record<string, unknown>,
-  accountKeys: string[],
-): ParsedInstruction {
-  const programIdIndex = ix.programIdIndex as number | undefined;
-  const programId = programIdIndex !== undefined ? accountKeys[programIdIndex] || "" : (ix.programId as string) || "";
-
-  const accountIndices = (ix.accounts || []) as number[];
-  const accounts = accountIndices.map((idx) =>
-    typeof idx === "number" ? accountKeys[idx] || String(idx) : String(idx),
-  );
-
-  return {
-    programId,
-    accounts,
-    data: (ix.data as string) || "",
-  };
+  });
 }
