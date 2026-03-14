@@ -37,7 +37,7 @@ export function DepthControl() {
         variant="outline"
         size="icon"
         className="size-7"
-        onClick={() => setExpansionDepth(expansionDepth - 1)}
+        onClick={() => setExpansionDepth(prev => prev - 1)}
         disabled={expansionDepth <= 1}
       >
         <Minus className="size-3" />
@@ -47,7 +47,7 @@ export function DepthControl() {
         variant="outline"
         size="icon"
         className="size-7"
-        onClick={() => setExpansionDepth(expansionDepth + 1)}
+        onClick={() => setExpansionDepth(prev => prev + 1)}
         disabled={expansionDepth >= 5}
       >
         <Plus className="size-3" />

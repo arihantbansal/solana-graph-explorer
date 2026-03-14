@@ -4,6 +4,7 @@ import {
   useContext,
   useState,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import type { PdaRelationshipRule } from "@/types/relationships";
@@ -73,7 +74,7 @@ interface SettingsContextValue {
   removeCollapsedAddress: (address: string) => void;
   isCollapsedAddress: (address: string) => boolean;
   expansionDepth: number;
-  setExpansionDepth: (depth: number) => void;
+  setExpansionDepth: (depth: SetStateAction<number>) => void;
   exportSettings: () => string;
   importSettings: (json: string) => void;
 }
@@ -224,8 +225,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [collapsedAddresses],
   );
 
-  const setExpansionDepth = useCallback((depth: number) => {
-    setExpansionDepthState(Math.max(1, Math.min(5, depth)));
+  const setExpansionDepth = useCallback((depthOrUpdater: SetStateAction<number>) => {
+    setExpansionDepthState((prev) => {
+      const next = typeof depthOrUpdater === "function" ? depthOrUpdater(prev) : depthOrUpdater;
+      return Math.max(1, Math.min(5, next));
+    });
   }, [setExpansionDepthState]);
 
   const exportSettings = useCallback(() => {
