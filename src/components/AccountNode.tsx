@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { AccountNode as AccountNodeType } from "@/types/graph";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,7 +39,7 @@ function formatFieldValue(value: unknown): string {
   return String(value);
 }
 
-export function AccountNodeComponent({ id: nodeId, data }: NodeProps<AccountNodeType>) {
+export const AccountNodeComponent = memo(function AccountNodeComponent({ id: nodeId, data }: NodeProps<AccountNodeType>) {
   const {
     address,
     accountType,
@@ -53,7 +53,7 @@ export function AccountNodeComponent({ id: nodeId, data }: NodeProps<AccountNode
     error,
   } = data;
 
-  const { state, dispatch } = useGraph();
+  const { dispatch, nodeIds } = useGraph();
   const { getLabel, setAddressLabel, getBytesEncoding } = useSettings();
   const exploreAddress = useExploreAddress();
   const [showAllFields, setShowAllFields] = useState(false);
@@ -100,15 +100,18 @@ export function AccountNodeComponent({ id: nodeId, data }: NodeProps<AccountNode
   const borderColor = `hsl(${hue}, 70%, 50%)`;
 
   const label = getLabel(address);
-  const existingNodeIds = new Set(state.nodes.map((n) => n.id));
-  const fields = decodedData
-    ? Object.entries(decodedData).filter(
-        ([, value]) => !isPubkey(value) || !existingNodeIds.has(value),
-      )
-    : [];
-  const visibleFields = showAllFields
-    ? fields
-    : fields.slice(0, COLLAPSED_FIELD_COUNT);
+  const fields = useMemo(
+    () => decodedData
+      ? Object.entries(decodedData).filter(
+          ([, value]) => !isPubkey(value) || !nodeIds.has(value),
+        )
+      : [],
+    [decodedData, nodeIds],
+  );
+  const visibleFields = useMemo(
+    () => showAllFields ? fields : fields.slice(0, COLLAPSED_FIELD_COUNT),
+    [fields, showAllFields],
+  );
   const hiddenCount = fields.length - COLLAPSED_FIELD_COUNT;
 
   const handleFieldClick = useCallback(
@@ -315,4 +318,4 @@ export function AccountNodeComponent({ id: nodeId, data }: NodeProps<AccountNode
       </CardContent>
     </Card>
   );
-}
+});

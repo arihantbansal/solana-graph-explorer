@@ -89,6 +89,8 @@ interface GraphContextValue {
   selectedNode: AccountNode | undefined;
   /** Convenience: get edges connected to a node */
   getNodeEdges: (nodeId: string) => AccountEdge[];
+  /** Memoized Set of all node IDs currently in the graph */
+  nodeIds: Set<string>;
 }
 
 const GraphContext = createContext<GraphContextValue | null>(null);
@@ -107,9 +109,14 @@ export function GraphProvider({ children }: { children: ReactNode }) {
     [state.edges],
   );
 
+  const nodeIds = useMemo(
+    () => new Set(state.nodes.map((n) => n.id)),
+    [state.nodes],
+  );
+
   const value = useMemo(
-    () => ({ state, dispatch, selectedNode, getNodeEdges }),
-    [state, dispatch, selectedNode, getNodeEdges],
+    () => ({ state, dispatch, selectedNode, getNodeEdges, nodeIds }),
+    [state, dispatch, selectedNode, getNodeEdges, nodeIds],
   );
 
   return (

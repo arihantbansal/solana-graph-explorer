@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { ParsedTransaction, TransactionFilter } from "@/types/transaction";
 import { fetchTransactions, isHeliusEndpoint } from "@/solana/fetchTransactions";
 
@@ -67,7 +67,7 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
   }, [loadTransactions]);
 
   // Client-side filtering
-  const filteredTransactions = transactions.filter((tx) => {
+  const filteredTransactions = useMemo(() => transactions.filter((tx) => {
     // Status filter
     if (filter.statusFilter === "success" && tx.err !== null) return false;
     if (filter.statusFilter === "failed" && tx.err === null) return false;
@@ -94,7 +94,7 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
     }
 
     return true;
-  });
+  }), [transactions, filter]);
 
   return {
     transactions: filteredTransactions,
@@ -104,7 +104,7 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
     setFilter,
     hasMore,
     loadMore,
-    loadInitial: () => loadTransactions(),
+    loadInitial: useCallback(() => loadTransactions(), [loadTransactions]),
     isHelius: isHeliusEndpoint(),
   };
 }

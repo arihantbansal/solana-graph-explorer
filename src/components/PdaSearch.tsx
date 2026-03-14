@@ -61,6 +61,7 @@ export function PdaSearch() {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const { savedPdaSearches } = useSettings();
+  const handlePopoverClose = useCallback(() => setPopoverOpen(false), []);
 
   return (
     <>
@@ -78,7 +79,7 @@ export function PdaSearch() {
                 <FavoriteSearchCard
                   key={fav.id}
                   favorite={fav}
-                  onClose={() => setPopoverOpen(false)}
+                  onClose={handlePopoverClose}
                 />
               ))}
             </div>

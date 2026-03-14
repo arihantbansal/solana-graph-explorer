@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useMemo,
   useState,
   type ReactNode,
   type SetStateAction,
@@ -325,41 +326,28 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, [rpcEndpointKey, customRpcUrl]);
 
+  const value = useMemo<SettingsContextValue>(() => ({
+    rpcEndpoint, rpcEndpointKey, setRpcEndpointKey, customRpcUrl, setCustomRpcUrl,
+    relationshipRules, addRelationshipRule, removeRelationshipRule,
+    savedPrograms, saveProgram, removeProgram, refreshProgram,
+    addressLabels, setAddressLabel, removeAddressLabel, getLabel,
+    bytesEncodings, setBytesEncoding, getBytesEncoding,
+    savedPdaSearches, addPdaSearch, removePdaSearch,
+    collapsedAddresses, addCollapsedAddress, removeCollapsedAddress, isCollapsedAddress,
+    expansionDepth, setExpansionDepth, exportSettings, importSettings,
+  }), [
+    rpcEndpoint, rpcEndpointKey, setRpcEndpointKey, customRpcUrl, setCustomRpcUrl,
+    relationshipRules, addRelationshipRule, removeRelationshipRule,
+    savedPrograms, saveProgram, removeProgram, refreshProgram,
+    addressLabels, setAddressLabel, removeAddressLabel, getLabel,
+    bytesEncodings, setBytesEncoding, getBytesEncoding,
+    savedPdaSearches, addPdaSearch, removePdaSearch,
+    collapsedAddresses, addCollapsedAddress, removeCollapsedAddress, isCollapsedAddress,
+    expansionDepth, setExpansionDepth, exportSettings, importSettings,
+  ]);
+
   return (
-    <SettingsContext.Provider
-      value={{
-        rpcEndpoint,
-        rpcEndpointKey,
-        setRpcEndpointKey,
-        customRpcUrl,
-        setCustomRpcUrl,
-        relationshipRules,
-        addRelationshipRule,
-        removeRelationshipRule,
-        savedPrograms,
-        saveProgram,
-        removeProgram,
-        refreshProgram,
-        addressLabels,
-        setAddressLabel,
-        removeAddressLabel,
-        getLabel,
-        bytesEncodings,
-        setBytesEncoding,
-        getBytesEncoding,
-        savedPdaSearches,
-        addPdaSearch,
-        removePdaSearch,
-        collapsedAddresses,
-        addCollapsedAddress,
-        removeCollapsedAddress,
-        isCollapsedAddress,
-        expansionDepth,
-        setExpansionDepth,
-        exportSettings,
-        importSettings,
-      }}
-    >
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   );

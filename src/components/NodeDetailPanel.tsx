@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -23,7 +23,7 @@ const DEFAULT_WIDTH = 420;
 const MAX_WIDTH = 800;
 
 export function NodeDetailPanel() {
-  const { state, dispatch, selectedNode, getNodeEdges } = useGraph();
+  const { state, dispatch, selectedNode, getNodeEdges, nodeIds } = useGraph();
   const { rpcEndpoint, savedPrograms, saveProgram, collapsedAddresses, getBytesEncoding, setBytesEncoding, isCollapsedAddress, addCollapsedAddress, removeCollapsedAddress } = useSettings();
   const exploreAddress = useExploreAddress();
   const { state: viewState, openTransaction } = useView();
@@ -37,8 +37,6 @@ export function NodeDetailPanel() {
 
   const isOpen = state.selectedNodeId !== null && selectedNode !== undefined;
   const edges = selectedNode ? getNodeEdges(selectedNode.id) : [];
-
-  const existingNodeIds = new Set(state.nodes.map((n) => n.id));
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     isDragging.current = true;
@@ -67,11 +65,14 @@ export function NodeDetailPanel() {
   if (!isOpen || !selectedNode) return null;
 
   // Filter decoded fields: hide pubkey values already on the graph
-  const decodedEntries = selectedNode.data.decodedData
-    ? Object.entries(selectedNode.data.decodedData).filter(
-        ([, value]) => !isPubkey(value) || !existingNodeIds.has(value),
-      )
-    : [];
+  const decodedEntries = useMemo(
+    () => selectedNode.data.decodedData
+      ? Object.entries(selectedNode.data.decodedData).filter(
+          ([, value]) => !isPubkey(value) || !nodeIds.has(value),
+        )
+      : [],
+    [selectedNode.data.decodedData, nodeIds],
+  );
 
   const content = (
     <>
@@ -234,9 +235,7 @@ export function NodeDetailPanel() {
           <TransactionHistory
             address={selectedNode.data.address}
             rpcUrl={rpcEndpoint}
-            onTransactionClick={(sig) => {
-              openTransaction(sig);
-            }}
+            onTransactionClick={openTransaction}
           />
 
           {/* Connected Edges */}

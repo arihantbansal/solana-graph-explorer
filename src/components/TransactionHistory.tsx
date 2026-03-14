@@ -11,7 +11,7 @@ import { TransactionRow } from "@/components/TransactionRow";
 import { useTransactionHistory } from "@/hooks/useTransactionHistory";
 import type { TransactionFilter } from "@/types/transaction";
 import { History, Loader2, Clock, CalendarDays } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 
 interface TransactionHistoryProps {
   address: string;
@@ -40,18 +40,24 @@ export function TransactionHistory({
   const hasLoaded = transactions.length > 0 || isLoading || error !== null;
 
   // Collect unique instruction names from loaded transactions for the filter dropdown
-  const instructionNames = new Set<string>();
-  for (const tx of transactions) {
-    for (const ix of tx.instructions) {
-      if (ix.decoded?.instructionName) {
-        instructionNames.add(ix.decoded.instructionName);
+  const instructionNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const tx of transactions) {
+      for (const ix of tx.instructions) {
+        if (ix.decoded?.instructionName) {
+          names.add(ix.decoded.instructionName);
+        }
       }
     }
-  }
+    return names;
+  }, [transactions]);
 
-  const updateFilter = (partial: Partial<TransactionFilter>) => {
-    setFilter((prev) => ({ ...prev, ...partial }));
-  };
+  const updateFilter = useCallback(
+    (partial: Partial<TransactionFilter>) => {
+      setFilter((prev) => ({ ...prev, ...partial }));
+    },
+    [],
+  );
 
   return (
     <div>
