@@ -13,6 +13,7 @@ import { TransactionView } from "@/components/TransactionView";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useRelationshipRules } from "@/hooks/useRelationshipRules";
+import { useClearAndExplore } from "@/hooks/useClearAndExplore";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { Download, Upload, Menu } from "lucide-react";
 
@@ -81,6 +82,16 @@ function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const isSm = useMediaQuery("(max-width: 767px)");
   const { state: viewState, dispatch: viewDispatch, backToGraph } = useView();
+  const clearAndExplore = useClearAndExplore();
+
+  // When switching back from transaction mode with a pending address, explore it
+  useEffect(() => {
+    if (viewState.mode === "graph" && viewState.pendingExplore) {
+      const address = viewState.pendingExplore;
+      viewDispatch({ type: "CLEAR_PENDING_EXPLORE" });
+      clearAndExplore(address);
+    }
+  }, [viewState.mode, viewState.pendingExplore, viewDispatch, clearAndExplore]);
 
   // Handle browser back/forward button for view switching
   useEffect(() => {
@@ -130,7 +141,7 @@ function AppLayout() {
           <main className="flex-1 relative min-w-0">
             <GraphCanvas />
           </main>
-          <NodeDetailPanel />
+          {!viewState.pendingExplore && <NodeDetailPanel />}
         </div>
       )}
       <RelationshipRuleEngine />

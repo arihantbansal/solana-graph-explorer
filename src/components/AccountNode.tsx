@@ -302,14 +302,14 @@ export const AccountNodeComponent = memo(function AccountNodeComponent({ id: nod
           <div className="text-[10px] text-destructive truncate">{error}</div>
         )}
 
-        {/* Expand/collapse indicator */}
-        {!isLoading && decodedData && !isExpanded && (
+        {/* Expand/collapse indicator (hidden in transaction view) */}
+        {!ixAccountLabel && !isLoading && decodedData && !isExpanded && (
           <div className="border-t pt-1 mt-1 flex items-center justify-center text-muted-foreground/60 text-[9px] gap-0.5">
             <ChevronDown className="size-3" />
             <span>double-click to expand</span>
           </div>
         )}
-        {isExpanded && (
+        {!ixAccountLabel && isExpanded && (
           <div className="border-t pt-1 mt-1 flex items-center justify-center text-muted-foreground/40 text-[9px] gap-0.5">
             <ChevronUp className="size-3" />
             <span>expanded</span>

@@ -22,7 +22,7 @@ export function TransactionHeader({ tx }: TransactionHeaderProps) {
 
   return (
     <div className="flex flex-wrap items-center gap-3 p-3 border-b bg-background">
-      <Button variant="ghost" size="sm" onClick={backToGraph}>
+      <Button variant="ghost" size="sm" onClick={() => backToGraph()}>
         <ArrowLeft className="size-4 mr-1" />
         Back
       </Button>

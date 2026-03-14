@@ -3,7 +3,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { Loader2, ChevronUp, ChevronDown, GripHorizontal } from "lucide-react";
 import { useView } from "@/contexts/ViewContext";
 import { useSettings } from "@/contexts/SettingsContext";
-import { GraphProvider } from "@/contexts/GraphContext";
+import { GraphProvider, useGraph } from "@/contexts/GraphContext";
 import { fetchTransactionBySignature } from "@/solana/fetchTransaction";
 import { decodeTransaction } from "@/engine/transactionDecoder";
 import { TransactionHeader } from "@/components/TransactionHeader";
@@ -13,6 +13,32 @@ import { TransactionCanvas } from "@/components/TransactionCanvas";
 import { NodeDetailPanel } from "@/components/NodeDetailPanel";
 import { InstructionDetailPanel } from "@/components/InstructionDetailPanel";
 import type { InstructionDetail } from "@/engine/instructionGraphBuilder";
+
+/** Wrapper that provides address click → node selection via GraphContext */
+function InstructionDetailPanelWithGraph({
+  detail,
+  onClose,
+}: {
+  detail: InstructionDetail;
+  onClose: () => void;
+}) {
+  const { dispatch } = useGraph();
+  const handleAddressClick = useCallback(
+    (address: string) => {
+      const nodeId = `${detail.clusterId}-${address}`;
+      dispatch({ type: "SELECT_NODE", nodeId });
+      onClose(); // switch to node detail panel
+    },
+    [detail.clusterId, dispatch, onClose],
+  );
+  return (
+    <InstructionDetailPanel
+      detail={detail}
+      onClose={onClose}
+      onAddressClick={handleAddressClick}
+    />
+  );
+}
 
 const DEFAULT_INFO_HEIGHT = 300;
 const MIN_INFO_HEIGHT = 60;
@@ -262,7 +288,7 @@ export function TransactionView() {
 
           {/* Detail panel spans full height */}
           {selectedInstruction ? (
-            <InstructionDetailPanel
+            <InstructionDetailPanelWithGraph
               detail={selectedInstruction}
               onClose={() => setSelectedInstruction(null)}
             />

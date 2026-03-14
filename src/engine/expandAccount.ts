@@ -36,6 +36,87 @@ export interface FetchDecodeResult extends ExpandResult {
   notFound: boolean;
 }
 
+/** Sentinel result for accounts not found on-chain. */
+const NOT_FOUND_RESULT: FetchDecodeResult = {
+  decodedData: null,
+  accountType: "Not Found",
+  idl: null,
+  typeDef: null,
+  programId: null,
+  programName: null,
+  balance: null,
+  thumbnail: undefined,
+  error: undefined,
+  notFound: true,
+};
+
+/** Build a FetchDecodeResult from a DAS asset. */
+function dasAssetResult(asset: { name: string; image: string | null; isNft: boolean; owner: string | null }): FetchDecodeResult {
+  return {
+    decodedData: asset.owner ? { owner: asset.owner } : null,
+    accountType: asset.isNft ? "NFT" : "Asset",
+    idl: null,
+    typeDef: null,
+    programId: null,
+    programName: asset.name,
+    balance: null,
+    thumbnail: asset.image ?? undefined,
+    error: undefined,
+    notFound: false,
+  };
+}
+
+/**
+ * Decode account data using built-in IDLs and/or a fetched IDL.
+ * Shared by both single-account and batch-account decode paths.
+ */
+function decodeAccountWithIdl(
+  data: Uint8Array,
+  owner: string,
+  idl: Idl | null,
+): { decodedData: Record<string, unknown> | null; accountType: string | null; idl: Idl | null; typeDef: IdlTypeDef | null; programName: string | null } {
+  let decodedData: Record<string, unknown> | null = null;
+  let accountType: string | null = null;
+  let typeDef: IdlTypeDef | null = null;
+  let programName: string | null = null;
+
+  const builtin = identifyBuiltinAccount(data.length, owner);
+  if (builtin) {
+    accountType = builtin.name;
+    typeDef = builtin.typeDef;
+    idl = idl ?? builtin.idl;
+    programName = idl.metadata?.name ?? owner;
+    try {
+      decodedData = decodeStructData(data, builtin.typeDef, builtin.idl);
+    } catch { /* decoding failed */ }
+  } else if (idl) {
+    programName = idl.metadata?.name ?? owner;
+    const identified = identifyAccountType(data, idl);
+    if (identified) {
+      accountType = identified.name;
+      typeDef = idl.types?.find((t) => t.name === identified.name) ?? null;
+      if (typeDef) {
+        try {
+          decodedData = decodeAccountData(data, typeDef, idl);
+        } catch { /* decoding failed */ }
+      }
+    }
+  }
+
+  return { decodedData, accountType, idl, typeDef, programName };
+}
+
+/**
+ * Try DAS asset detection as a fallback, or return NOT_FOUND_RESULT.
+ */
+async function fallbackToDasOrNotFound(addr: string, rpcUrl: string): Promise<FetchDecodeResult> {
+  try {
+    const asset = await detectAsset(addr, rpcUrl);
+    if (asset) return dasAssetResult(asset);
+  } catch { /* DAS not available */ }
+  return { ...NOT_FOUND_RESULT };
+}
+
 /**
  * Pure fetch + decode: fetches an account from RPC and decodes it using IDL,
  * WITHOUT dispatching any graph actions. Returns all data needed to update the graph.
@@ -48,40 +129,7 @@ export async function fetchAndDecode(
   try {
     const account = await fetchAccount(addr, rpcUrl);
     if (!account) {
-      // Try DAS asset detection as fallback (compressed NFTs, etc.)
-      try {
-        const asset = await detectAsset(addr, rpcUrl);
-        if (asset) {
-          const assetDecodedData = asset.owner ? { owner: asset.owner } : null;
-          return {
-            decodedData: assetDecodedData,
-            accountType: asset.isNft ? "NFT" : "Asset",
-            idl: null,
-            typeDef: null,
-            programId: null,
-            programName: asset.name,
-            balance: null,
-            thumbnail: asset.image ?? undefined,
-            error: undefined,
-            notFound: false,
-          };
-        }
-      } catch {
-        // DAS not available — fall through
-      }
-
-      return {
-        decodedData: null,
-        accountType: "Not Found",
-        idl: null,
-        typeDef: null,
-        programId: null,
-        programName: null,
-        balance: null,
-        thumbnail: undefined,
-        error: undefined,
-        notFound: true,
-      };
+      return await fallbackToDasOrNotFound(addr, rpcUrl);
     }
 
     const owner = account.owner;
@@ -103,49 +151,11 @@ export async function fetchAndDecode(
       }
     }
 
-    let decodedData: Record<string, unknown> | null = null;
-    let accountType: string | null = null;
-    let typeDef: IdlTypeDef | null = null;
-    let programName: string | null = null;
-
-    // Try built-in account identification first (SPL Token, etc.)
-    const builtin = identifyBuiltinAccount(account.data.length, owner);
-    if (builtin) {
-      accountType = builtin.name;
-      typeDef = builtin.typeDef;
-      idl = idl ?? builtin.idl;
-      programName = idl.metadata?.name ?? owner;
-
-      try {
-        decodedData = decodeStructData(account.data, builtin.typeDef, builtin.idl);
-      } catch {
-        // Decoding failed — show type but no data
-      }
-    } else if (idl) {
-      programName = idl.metadata?.name ?? owner;
-
-      const identified = identifyAccountType(account.data, idl);
-      if (identified) {
-        accountType = identified.name;
-        typeDef = idl.types?.find((t) => t.name === identified.name) ?? null;
-
-        if (typeDef) {
-          try {
-            decodedData = decodeAccountData(account.data, typeDef, idl);
-          } catch {
-            // Decoding failed — show type but no data
-          }
-        }
-      }
-    }
+    const decoded = decodeAccountWithIdl(account.data, account.owner, idl);
 
     return {
-      decodedData,
-      accountType,
-      idl,
-      typeDef,
+      ...decoded,
       programId: owner,
-      programName,
       balance: Number(lamports),
       thumbnail: undefined,
       error: undefined,
@@ -242,87 +252,22 @@ export async function fetchAndDecodeMany(
     }
   }
 
-  // Step 3: Decode each account using existing logic
+  // Step 3: Decode each account using shared logic
   for (const addr of addresses) {
     const account = accountMap.get(addr);
 
     if (!account) {
-      // Try DAS asset detection as fallback
-      try {
-        const asset = await detectAsset(addr, rpcUrl);
-        if (asset) {
-          results.set(addr, {
-            decodedData: asset.owner ? { owner: asset.owner } : null,
-            accountType: asset.isNft ? "NFT" : "Asset",
-            idl: null,
-            typeDef: null,
-            programId: null,
-            programName: asset.name,
-            balance: null,
-            thumbnail: asset.image ?? undefined,
-            error: undefined,
-            notFound: false,
-          });
-          continue;
-        }
-      } catch { /* DAS not available */ }
-
-      results.set(addr, {
-        decodedData: null,
-        accountType: "Not Found",
-        idl: null,
-        typeDef: null,
-        programId: null,
-        programName: null,
-        balance: null,
-        thumbnail: undefined,
-        error: undefined,
-        notFound: true,
-      });
+      results.set(addr, await fallbackToDasOrNotFound(addr, rpcUrl));
       continue;
     }
 
     const owner = account.owner;
-    let idl: Idl | null = null;
-    if (hasIdl(owner)) {
-      idl = getIdl(owner) ?? null;
-    }
-
-    let decodedData: Record<string, unknown> | null = null;
-    let accountType: string | null = null;
-    let typeDef: IdlTypeDef | null = null;
-    let programName: string | null = null;
-
-    const builtin = identifyBuiltinAccount(account.data.length, owner);
-    if (builtin) {
-      accountType = builtin.name;
-      typeDef = builtin.typeDef;
-      idl = idl ?? builtin.idl;
-      programName = idl.metadata?.name ?? owner;
-      try {
-        decodedData = decodeStructData(account.data, builtin.typeDef, builtin.idl);
-      } catch { /* decoding failed */ }
-    } else if (idl) {
-      programName = idl.metadata?.name ?? owner;
-      const identified = identifyAccountType(account.data, idl);
-      if (identified) {
-        accountType = identified.name;
-        typeDef = idl.types?.find((t) => t.name === identified.name) ?? null;
-        if (typeDef) {
-          try {
-            decodedData = decodeAccountData(account.data, typeDef, idl);
-          } catch { /* decoding failed */ }
-        }
-      }
-    }
+    const idl: Idl | null = hasIdl(owner) ? (getIdl(owner) ?? null) : null;
+    const decoded = decodeAccountWithIdl(account.data, owner, idl);
 
     results.set(addr, {
-      decodedData,
-      accountType,
-      idl,
-      typeDef,
+      ...decoded,
       programId: owner,
-      programName,
       balance: Number(account.lamports),
       thumbnail: undefined,
       error: undefined,

@@ -10,7 +10,7 @@ const MIN_WIDTH = 320;
 const DEFAULT_WIDTH = 420;
 const MAX_WIDTH = 800;
 
-function ArgsFieldList({ args }: { args: Record<string, unknown> }) {
+function ArgsFieldList({ args, onAddressClick }: { args: Record<string, unknown>; onAddressClick?: (address: string) => void }) {
   const entries = useMemo(() => flattenArgs(args), [args]);
   if (entries.length === 0) return null;
 
@@ -30,7 +30,16 @@ function ArgsFieldList({ args }: { args: Record<string, unknown> }) {
               <span className="font-mono text-right break-all">
                 {pubkey ? (
                   <span className="inline-flex items-center gap-1">
-                    <span className="text-blue-500">{value as string}</span>
+                    {onAddressClick ? (
+                      <button
+                        className="text-blue-500 hover:underline cursor-pointer"
+                        onClick={() => onAddressClick(value as string)}
+                      >
+                        {value as string}
+                      </button>
+                    ) : (
+                      <span className="text-blue-500">{value as string}</span>
+                    )}
                     <CopyButton value={value as string} iconSize="size-2.5" />
                   </span>
                 ) : (
@@ -45,12 +54,69 @@ function ArgsFieldList({ args }: { args: Record<string, unknown> }) {
   );
 }
 
+function AccountsList({
+  accounts,
+  onAddressClick,
+}: {
+  accounts: InstructionDetail["accounts"];
+  onAddressClick?: (address: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      {accounts.map((acc) => (
+        <div
+          key={acc.index}
+          className="border border-border/50 rounded p-2 space-y-1"
+        >
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-muted-foreground w-4 shrink-0">
+              #{acc.index}
+            </span>
+            <span className="text-xs font-medium truncate">{acc.name}</span>
+            {acc.isSigner && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/50 text-amber-600 shrink-0">
+                Signer
+              </Badge>
+            )}
+            {acc.isWritable && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 border-orange-500/50 text-orange-600 shrink-0">
+                Writable
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-start gap-1">
+            {onAddressClick ? (
+              <button
+                className="font-mono text-[10px] text-blue-500 hover:underline break-all text-left cursor-pointer"
+                onClick={() => onAddressClick(acc.address)}
+              >
+                {acc.address}
+              </button>
+            ) : (
+              <div className="font-mono text-[10px] text-muted-foreground break-all">
+                {acc.address}
+              </div>
+            )}
+            <CopyButton value={acc.address} iconSize="size-2.5" />
+          </div>
+          {acc.pdaSeeds && (
+            <div className="text-[9px] text-muted-foreground/70 font-mono">
+              PDA: [{acc.pdaSeeds}]
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface InstructionDetailPanelProps {
   detail: InstructionDetail;
   onClose: () => void;
+  onAddressClick?: (address: string) => void;
 }
 
-export function InstructionDetailPanel({ detail, onClose }: InstructionDetailPanelProps) {
+export function InstructionDetailPanel({ detail, onClose, onAddressClick }: InstructionDetailPanelProps) {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const isDragging = useRef(false);
   const startX = useRef(0);
@@ -135,47 +201,52 @@ export function InstructionDetailPanel({ detail, onClose }: InstructionDetailPan
             <h4 className="text-xs font-medium text-muted-foreground mb-1">
               Accounts ({detail.accounts.length})
             </h4>
-            <div className="space-y-1.5">
-              {detail.accounts.map((acc) => (
-                <div
-                  key={acc.index}
-                  className="border border-border/50 rounded p-2 space-y-1"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-muted-foreground w-4 shrink-0">
-                      #{acc.index}
-                    </span>
-                    <span className="text-xs font-medium truncate">{acc.name}</span>
-                    {acc.isSigner && (
-                      <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/50 text-amber-600 shrink-0">
-                        Signer
-                      </Badge>
-                    )}
-                    {acc.isWritable && (
-                      <Badge variant="outline" className="text-[9px] px-1 py-0 border-orange-500/50 text-orange-600 shrink-0">
-                        Writable
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex items-start gap-1">
-                    <div className="font-mono text-[10px] text-muted-foreground break-all">
-                      {acc.address}
-                    </div>
-                    <CopyButton value={acc.address} iconSize="size-2.5" />
-                  </div>
-                  {acc.pdaSeeds && (
-                    <div className="text-[9px] text-muted-foreground/70 font-mono">
-                      PDA: [{acc.pdaSeeds}]
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+            <AccountsList accounts={detail.accounts} onAddressClick={onAddressClick} />
           </div>
 
           {/* Decoded Args */}
           {detail.args && Object.keys(detail.args).length > 0 && (
-            <ArgsFieldList args={detail.args} />
+            <ArgsFieldList args={detail.args} onAddressClick={onAddressClick} />
+          )}
+
+          {/* Inner Instructions (CPI calls) */}
+          {detail.innerInstructions && detail.innerInstructions.length > 0 && (
+            <div className="space-y-4">
+              <h4 className="text-xs font-medium text-muted-foreground border-t border-border pt-3">
+                Inner Instructions ({detail.innerInstructions.length})
+              </h4>
+              {detail.innerInstructions.map((inner, idx) => (
+                <div key={idx} className="space-y-3 pl-3 border-l-2 border-purple-500/30">
+                  {/* Inner program info */}
+                  <div>
+                    <div className="text-xs font-medium">
+                      ↳ {inner.instructionName} ({inner.programName})
+                    </div>
+                    <div className="flex items-start gap-1">
+                      <div className="font-mono text-[10px] text-muted-foreground break-all">
+                        {inner.programId}
+                      </div>
+                      <CopyButton value={inner.programId} iconSize="size-2.5" />
+                    </div>
+                  </div>
+
+                  {/* Inner accounts */}
+                  {inner.accounts.length > 0 && (
+                    <div>
+                      <h5 className="text-[10px] font-medium text-muted-foreground mb-1">
+                        Accounts ({inner.accounts.length})
+                      </h5>
+                      <AccountsList accounts={inner.accounts} onAddressClick={onAddressClick} />
+                    </div>
+                  )}
+
+                  {/* Inner decoded args */}
+                  {inner.args && Object.keys(inner.args).length > 0 && (
+                    <ArgsFieldList args={inner.args} onAddressClick={onAddressClick} />
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>

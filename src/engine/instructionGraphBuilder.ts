@@ -36,6 +36,7 @@ export interface InstructionCluster {
 /** Full detail of an instruction, attached to cluster nodes for the inspect panel. */
 export interface InstructionDetail {
   instructionIndex: number;
+  clusterId: string;
   programId: string;
   programName: string;
   instructionName: string;
@@ -49,6 +50,14 @@ export interface InstructionDetail {
   }>;
   args?: Record<string, unknown>;
   rawData: string;
+  innerInstructions?: Array<{
+    programId: string;
+    programName: string;
+    instructionName: string;
+    accounts: InstructionDetail["accounts"];
+    args?: Record<string, unknown>;
+    rawData: string;
+  }>;
 }
 
 /**
@@ -277,14 +286,54 @@ export function buildInstructionGraphs(
       });
     }
 
+    // Build inner instruction details for the inspect panel
+    const innerDetailList: InstructionDetail["innerInstructions"] = [];
+    if (innerSet) {
+      for (const innerIx of innerSet.instructions) {
+        if (innerIx.programId === COMPUTE_BUDGET_PROGRAM) continue;
+        const innerIdl = idls.get(innerIx.programId);
+        const innerIxInfo = findIdlInstruction(innerIx, innerIdl);
+        const innerIxName = innerIx.decoded?.instructionName ?? innerIxInfo?.name ?? "Unknown";
+        const innerProgramName = innerIx.decoded?.programName ?? getProgramDisplayName(innerIx.programId, innerIdl);
+        const innerAccountDefs = innerIxInfo?.accountDefs ?? [];
+
+        const innerDetailAccounts: InstructionDetail["accounts"] = [];
+        for (let j = 0; j < innerIx.accounts.length; j++) {
+          const addr = innerIx.accounts[j];
+          if (excludedAddresses.has(addr)) continue;
+          const def = innerAccountDefs[j];
+          innerDetailAccounts.push({
+            index: j,
+            name: def?.name ?? `Account ${j}`,
+            address: addr,
+            isSigner: def?.signer ?? false,
+            isWritable: def?.writable ?? false,
+            pdaSeeds: def?.pda ? formatPdaSeeds(def.pda) : undefined,
+          });
+        }
+
+        const innerHasArgs = innerIx.decoded?.args && Object.keys(innerIx.decoded.args).length > 0;
+        innerDetailList.push({
+          programId: innerIx.programId,
+          programName: innerProgramName,
+          instructionName: innerIxName,
+          accounts: innerDetailAccounts,
+          args: innerHasArgs ? innerIx.decoded!.args : undefined,
+          rawData: innerIx.data,
+        });
+      }
+    }
+
     const instructionDetail: InstructionDetail = {
       instructionIndex: ixDisplayIndex,
+      clusterId,
       programId: ix.programId,
       programName: programName,
       instructionName: ixName,
       accounts: detailAccounts,
       args: hasArgs && ix.decoded?.args ? ix.decoded.args : undefined,
       rawData: ix.data,
+      ...(innerDetailList.length > 0 ? { innerInstructions: innerDetailList } : {}),
     };
 
     // Create cluster group node (custom ixCluster type)
@@ -297,6 +346,7 @@ export function buildInstructionGraphs(
         height: clusterHeight,
       },
       data: { label, instructionDetail },
+      draggable: false,
     };
     clusterNodes.push(clusterNode);
 
@@ -334,51 +384,69 @@ export function buildInstructionGraphs(
       clusterNodes.push(accountNode);
     }
 
-    // Create edges from top-level IDL relations (has_one etc.)
-    for (let j = 0; j < ix.accounts.length; j++) {
-      const def = accountDefs[j];
-      if (def?.relations) {
-        const sourceNodeId = `${clusterId}-${ix.accounts[j]}`;
-        for (const relName of def.relations) {
-          // Try exact match first, then suffix match for nested names (e.g. "rewards_escrow" → "common.rewards_escrow")
-          let relIdx = accountDefs.findIndex((d) => d.name === relName);
-          if (relIdx < 0) {
-            relIdx = accountDefs.findIndex((d) => d.name.endsWith(`.${relName}`));
-          }
-          if (relIdx >= 0 && relIdx < ix.accounts.length) {
-            const targetNodeId = `${clusterId}-${ix.accounts[relIdx]}`;
-            clusterEdges.push({
-              id: `${sourceNodeId}-rel-${targetNodeId}`,
-              source: sourceNodeId,
-              target: targetNodeId,
-              label: relName,
-              style: { stroke: "hsl(var(--muted-foreground))", strokeWidth: 1 },
-            });
-          }
+    // Collect all (address, def) pairs from top-level + inner instructions for edge creation
+    const allAccountDefs: Array<{ addr: string; def: IdlInstructionAccountDef }> = [];
+    for (let j = 0; j < ix.accounts.length && j < accountDefs.length; j++) {
+      if (accountDefs[j]) allAccountDefs.push({ addr: ix.accounts[j], def: accountDefs[j] });
+    }
+    if (innerSet) {
+      for (const innerIx of innerSet.instructions) {
+        if (innerIx.programId === COMPUTE_BUDGET_PROGRAM) continue;
+        const innerIdl = idls.get(innerIx.programId);
+        const innerIxInfo = findIdlInstruction(innerIx, innerIdl);
+        const innerAccountDefs = innerIxInfo?.accountDefs ?? [];
+        for (let j = 0; j < innerIx.accounts.length && j < innerAccountDefs.length; j++) {
+          if (innerAccountDefs[j]) allAccountDefs.push({ addr: innerIx.accounts[j], def: innerAccountDefs[j] });
         }
       }
     }
 
-    // Create edges for PDA account seeds (account A's PDA uses account B as a seed)
-    // Build name→address map for lookups
+    // Build unified name→address map for relation/PDA lookups
     const nameToAddr = new Map<string, string>();
-    for (let j = 0; j < ix.accounts.length && j < accountDefs.length; j++) {
-      if (accountDefs[j]?.name) {
-        nameToAddr.set(accountDefs[j].name, ix.accounts[j]);
+    for (const { addr, def } of allAccountDefs) {
+      if (def.name && !nameToAddr.has(def.name)) {
+        nameToAddr.set(def.name, addr);
       }
     }
+
+    // Create edges from IDL relations (has_one etc.) — top-level + inner instructions
+    const relEdgeIds = new Set<string>();
+    for (const { addr, def } of allAccountDefs) {
+      if (!def.relations) continue;
+      if (excludedAddresses.has(addr)) continue;
+      const sourceNodeId = `${clusterId}-${addr}`;
+      for (const relName of def.relations) {
+        let targetAddr = nameToAddr.get(relName);
+        if (!targetAddr) {
+          for (const [name, a] of nameToAddr) {
+            if (name.endsWith(`.${relName}`)) { targetAddr = a; break; }
+          }
+        }
+        if (!targetAddr || excludedAddresses.has(targetAddr) || targetAddr === addr) continue;
+        const targetNodeId = `${clusterId}-${targetAddr}`;
+        const edgeId = `${sourceNodeId}-rel-${targetNodeId}`;
+        if (relEdgeIds.has(edgeId)) continue;
+        relEdgeIds.add(edgeId);
+        clusterEdges.push({
+          id: edgeId,
+          source: sourceNodeId,
+          target: targetNodeId,
+          label: "has one",
+          style: { stroke: "#6b7280", strokeWidth: 2 },
+          data: { label: "has one", relationshipType: "has_one" },
+        });
+      }
+    }
+
+    // Create edges for PDA account seeds (account A's PDA uses account B as a seed)
     const pdaEdgeIds = new Set<string>();
-    for (let j = 0; j < ix.accounts.length && j < accountDefs.length; j++) {
-      const def = accountDefs[j];
-      if (!def?.pda) continue;
-      const addr = ix.accounts[j];
+    for (const { addr, def } of allAccountDefs) {
+      if (!def.pda) continue;
       if (excludedAddresses.has(addr)) continue;
       const sourceNodeId = `${clusterId}-${addr}`;
 
       for (const seed of def.pda.seeds) {
         if (seed.kind !== "account") continue;
-        // The seed path references another account name — try exact match first,
-        // then match by suffix (e.g. "rewards_escrow" matches "common.rewards_escrow")
         let targetAddr = nameToAddr.get(seed.path);
         if (!targetAddr) {
           for (const [name, a] of nameToAddr) {
@@ -397,8 +465,9 @@ export function buildInstructionGraphs(
           id: edgeKey,
           source: targetNodeId,
           target: sourceNodeId,
-          label: `pda seed`,
-          style: { stroke: "hsl(280, 60%, 55%)", strokeWidth: 1.5, strokeDasharray: "4 3" },
+          label: "pda seed",
+          style: { stroke: "#8b5cf6", strokeWidth: 2, strokeDasharray: "5 5" },
+          data: { label: "pda seed", relationshipType: "pda_seed" },
         });
       }
     }
