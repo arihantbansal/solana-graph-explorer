@@ -1,8 +1,10 @@
 export interface DasAssetInfo {
   name: string;
+  symbol?: string;
   image: string | null;
   isNft: boolean;
   owner: string | null;
+  uri?: string;
 }
 
 export interface DasGetAssetResponse {
@@ -111,6 +113,8 @@ export function parseAssetResponse(
   const isNft = nftInterfaces.includes(result.interface ?? "");
 
   const owner = result.ownership?.owner ?? null;
+  const symbol = result.content?.metadata?.symbol ?? undefined;
+  const uri = result.content?.json_uri ?? undefined;
 
-  return { name, image, isNft, owner };
+  return { name, symbol, image, isNft, owner, uri };
 }

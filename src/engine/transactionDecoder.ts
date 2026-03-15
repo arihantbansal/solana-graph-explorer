@@ -60,6 +60,7 @@ export function computeTokenBalanceChanges(
     if (delta !== 0) {
       changes.push({
         address: tx.accountKeys[pre.accountIndex] ?? String(pre.accountIndex),
+        owner: pre.owner,
         mint: pre.mint,
         preAmount,
         postAmount,
@@ -79,6 +80,7 @@ export function computeTokenBalanceChanges(
       changes.push({
         address:
           tx.accountKeys[post.accountIndex] ?? String(post.accountIndex),
+        owner: post.owner,
         mint: post.mint,
         preAmount: 0,
         postAmount,

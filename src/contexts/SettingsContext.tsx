@@ -106,9 +106,38 @@ function saveRules(rules: PdaRelationshipRule[]) {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
+/** Read initial network from URL ?network= param */
+function getInitialRpcFromUrl(): { key: RpcEndpointKey; customUrl: string } {
+  const params = new URLSearchParams(window.location.search);
+  const network = params.get("network");
+  const customUrl = params.get("rpc") ?? "";
+  if (network && RPC_OPTIONS.some((o) => o.key === network)) {
+    return { key: network as RpcEndpointKey, customUrl };
+  }
+  return { key: "mainnet", customUrl };
+}
+
+/** Sync network to URL — only add param if not mainnet */
+function syncNetworkToUrl(key: RpcEndpointKey, customUrl: string) {
+  const url = new URL(window.location.href);
+  if (key === "mainnet") {
+    url.searchParams.delete("network");
+    url.searchParams.delete("rpc");
+  } else {
+    url.searchParams.set("network", key);
+    if (key === "custom" && customUrl) {
+      url.searchParams.set("rpc", customUrl);
+    } else {
+      url.searchParams.delete("rpc");
+    }
+  }
+  window.history.replaceState({}, "", url.toString());
+}
+
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [rpcEndpointKey, setRpcEndpointKey] = useState<RpcEndpointKey>("mainnet");
-  const [customRpcUrl, setCustomRpcUrl] = useState("");
+  const initialRpc = getInitialRpcFromUrl();
+  const [rpcEndpointKey, setRpcEndpointKeyState] = useState<RpcEndpointKey>(initialRpc.key);
+  const [customRpcUrl, setCustomRpcUrlState] = useState(initialRpc.customUrl);
   const [relationshipRules, setRelationshipRules] = useState<PdaRelationshipRule[]>(
     loadRules
   );
@@ -123,6 +152,18 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     rpcEndpointKey === "custom"
       ? customRpcUrl
       : (RPC_OPTIONS.find((o) => o.key === rpcEndpointKey)?.url ?? RPC_OPTIONS[0].url);
+
+  const setRpcEndpointKey = useCallback((key: RpcEndpointKey) => {
+    setRpcEndpointKeyState(key);
+    syncNetworkToUrl(key, customRpcUrl);
+  }, [customRpcUrl]);
+
+  const setCustomRpcUrl = useCallback((url: string) => {
+    setCustomRpcUrlState(url);
+    if (rpcEndpointKey === "custom") {
+      syncNetworkToUrl(rpcEndpointKey, url);
+    }
+  }, [rpcEndpointKey]);
 
   const addRelationshipRule = useCallback((rule: PdaRelationshipRule) => {
     setRelationshipRules((prev) => {
@@ -235,6 +276,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       programId,
       programName,
     }));
+    // Include history from localStorage
+    let history: unknown[] = [];
+    try {
+      const raw = localStorage.getItem("solana-graph-explorer:history");
+      if (raw) history = JSON.parse(raw);
+    } catch { /* ignore */ }
     return JSON.stringify({
       version: 1,
       rpcEndpointKey,
@@ -246,6 +293,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       savedPdaSearches,
       collapsedAddresses,
       expansionDepth,
+      history,
     }, null, 2);
   }, [rpcEndpointKey, customRpcUrl, relationshipRules, savedPrograms, addressLabels, bytesEncodings, savedPdaSearches, collapsedAddresses, expansionDepth]);
 
@@ -319,6 +367,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
     if (typeof data.expansionDepth === "number") {
       setExpansionDepthState(Math.max(1, Math.min(5, data.expansionDepth)));
+    }
+    // Import history
+    if (Array.isArray(data.history)) {
+      localStorage.setItem("solana-graph-explorer:history", JSON.stringify(data.history));
     }
   }, [rpcEndpointKey, customRpcUrl]);
 

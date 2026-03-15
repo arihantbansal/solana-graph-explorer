@@ -6,7 +6,8 @@ import { fetchAccountsBatch } from "@/solana/fetchAccounts";
 import { fetchIdl, deriveIdlAddress, deriveMetadataIdlAddress, tryParseIdlFromAccount } from "@/solana/fetchIdl";
 import { getIdl, setIdl, hasIdl } from "@/solana/idlCache";
 import { identifyAccountType, decodeAccountData, decodeStructData } from "./accountDecoder";
-import { identifyBuiltinAccount } from "@/solana/builtinIdls";
+import { identifyBuiltinAccount, splTokenIdl, trimNullPaddedStrings, METAPLEX_METADATA_PROGRAM_ID } from "@/solana/builtinIdls";
+import { getProgramDerivedAddress, getAddressEncoder, address as toAddress } from "@solana/kit";
 import { inferAllRelationships } from "./relationshipEngine";
 import { buildExpansionGraph } from "./graphBuilder";
 import { detectAsset } from "./assetDetection";
@@ -51,9 +52,12 @@ const NOT_FOUND_RESULT: FetchDecodeResult = {
 };
 
 /** Build a FetchDecodeResult from a DAS asset. */
-function dasAssetResult(asset: { name: string; image: string | null; isNft: boolean; owner: string | null }): FetchDecodeResult {
+function dasAssetResult(asset: { name: string; image: string | null; isNft: boolean; owner: string | null; uri?: string }): FetchDecodeResult {
+  const data: Record<string, unknown> = {};
+  if (asset.owner) data.owner = asset.owner;
+  if (asset.uri) data.uri = asset.uri;
   return {
-    decodedData: asset.owner ? { owner: asset.owner } : null,
+    decodedData: Object.keys(data).length > 0 ? data : null,
     accountType: asset.isNft ? "NFT" : "Asset",
     idl: null,
     typeDef: null,
@@ -80,7 +84,7 @@ function decodeAccountWithIdl(
   let typeDef: IdlTypeDef | null = null;
   let programName: string | null = null;
 
-  const builtin = identifyBuiltinAccount(data.length, owner);
+  const builtin = identifyBuiltinAccount(data.length, owner, data);
   if (builtin) {
     accountType = builtin.name;
     typeDef = builtin.typeDef;
@@ -88,6 +92,10 @@ function decodeAccountWithIdl(
     programName = idl.metadata?.name ?? owner;
     try {
       decodedData = decodeStructData(data, builtin.typeDef, builtin.idl);
+      // Metaplex pads strings with null bytes — trim them
+      if (decodedData && owner === METAPLEX_METADATA_PROGRAM_ID) {
+        trimNullPaddedStrings(decodedData);
+      }
     } catch { /* decoding failed */ }
   } else if (idl) {
     programName = idl.metadata?.name ?? owner;
@@ -104,6 +112,177 @@ function decodeAccountWithIdl(
   }
 
   return { decodedData, accountType, idl, typeDef, programName };
+}
+
+/**
+ * Derive the Metaplex Token Metadata PDA for a given mint.
+ */
+async function deriveMetadataPda(mint: string): Promise<string> {
+  const encoder = getAddressEncoder();
+  const [pda] = await getProgramDerivedAddress({
+    programAddress: toAddress(METAPLEX_METADATA_PROGRAM_ID),
+    seeds: [
+      new TextEncoder().encode("metadata"),
+      encoder.encode(toAddress(METAPLEX_METADATA_PROGRAM_ID)),
+      encoder.encode(toAddress(mint)),
+    ],
+  });
+  return pda;
+}
+
+/**
+ * Enrich token-related accounts with extra display fields:
+ * - tokenAccount: add amount_raw, formatted amount, token name/symbol from DAS
+ * - mint: add token name/symbol from DAS, tokenMetadata PDA address
+ */
+async function enrichTokenFields(
+  decodedData: Record<string, unknown>,
+  accountType: string | null,
+  accountAddress: string,
+  rpcUrl: string,
+): Promise<void> {
+  if (accountType === "tokenAccount") {
+    await enrichTokenAccount(decodedData, rpcUrl);
+  } else if (accountType === "mint") {
+    await enrichMintAccount(decodedData, accountAddress, rpcUrl);
+  }
+}
+
+async function enrichTokenAccount(
+  decodedData: Record<string, unknown>,
+  rpcUrl: string,
+): Promise<void> {
+  const mintAddr = decodedData.mint as string | undefined;
+  if (!mintAddr) return;
+
+  // Fetch token name/symbol via DAS (will be prepended to top later)
+  let tokenName: string | undefined;
+  let tokenSymbol: string | undefined;
+  try {
+    const asset = await detectAsset(mintAddr, rpcUrl);
+    if (asset?.name) tokenName = asset.name;
+    if (asset?.symbol) tokenSymbol = asset.symbol;
+  } catch { /* DAS unavailable */ }
+
+  // Format amount using mint decimals
+  let formattedAmount: string | undefined;
+  if (decodedData.amount) {
+    const rawAmount = decodedData.amount;
+
+    try {
+      const mintAccount = await fetchAccount(mintAddr, rpcUrl);
+      if (mintAccount && mintAccount.data.length >= 82) {
+        const mintTypeDef = splTokenIdl.types!.find((t) => t.name === "mint")!;
+        const mintData = decodeStructData(mintAccount.data, mintTypeDef, splTokenIdl);
+        if (mintData && typeof mintData.decimals === "number") {
+          const raw = typeof rawAmount === "bigint" ? rawAmount : BigInt(String(rawAmount));
+          const divisor = 10 ** mintData.decimals;
+          formattedAmount = (Number(raw) / divisor).toLocaleString(undefined, {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: mintData.decimals,
+          });
+        }
+      }
+    } catch { /* mint fetch failed */ }
+  }
+
+  // Rebuild decodedData with Token Name/Symbol at top and amount/amount_raw adjacent
+  reorderTokenFields(decodedData, tokenName, tokenSymbol, formattedAmount);
+}
+
+async function enrichMintAccount(
+  decodedData: Record<string, unknown>,
+  mintAddress: string,
+  rpcUrl: string,
+): Promise<void> {
+  // Fetch token name/symbol via DAS
+  let tokenName: string | undefined;
+  let tokenSymbol: string | undefined;
+  try {
+    const asset = await detectAsset(mintAddress, rpcUrl);
+    if (asset?.name) tokenName = asset.name;
+    if (asset?.symbol) tokenSymbol = asset.symbol;
+  } catch { /* DAS unavailable */ }
+
+  // Derive and add the token metadata PDA address
+  let metadataPda: string | undefined;
+  try {
+    metadataPda = await deriveMetadataPda(mintAddress);
+  } catch { /* derivation failed */ }
+
+  // Rebuild with Token Name/Symbol at top
+  reorderMintFields(decodedData, tokenName, tokenSymbol, metadataPda);
+}
+
+/**
+ * Reorder token account fields: Token Name, Token Symbol at top, amount and amount_raw adjacent.
+ * Mutates the object in place by deleting and re-inserting keys.
+ */
+function reorderTokenFields(
+  data: Record<string, unknown>,
+  tokenName: string | undefined,
+  tokenSymbol: string | undefined,
+  formattedAmount: string | undefined,
+): void {
+  // Save the raw amount before we rebuild
+  const rawAmount = data.amount;
+
+  // Save all existing keys/values
+  const entries = Object.entries(data);
+
+  // Clear the object
+  for (const key of Object.keys(data)) {
+    delete data[key];
+  }
+
+  // 1. Token Name / Token Symbol at top
+  if (tokenName) data["Token Name"] = tokenName;
+  if (tokenSymbol) data["Token Symbol"] = tokenSymbol;
+
+  // 2. Re-add all original fields, but handle amount specially
+  for (const [key, value] of entries) {
+    if (key === "amount") {
+      // Put amount and amount_raw adjacent
+      data.amount = formattedAmount ?? value;
+      data.amount_raw = rawAmount;
+    } else {
+      data[key] = value;
+    }
+  }
+
+  // If amount wasn't in the original entries but we have formatted, add it
+  if (!("amount" in data) && formattedAmount) {
+    data.amount = formattedAmount;
+    if (rawAmount !== undefined) data.amount_raw = rawAmount;
+  }
+}
+
+/**
+ * Reorder mint fields: Token Name, Token Symbol at top, tokenMetadata at end.
+ * Mutates the object in place.
+ */
+function reorderMintFields(
+  data: Record<string, unknown>,
+  tokenName: string | undefined,
+  tokenSymbol: string | undefined,
+  metadataPda: string | undefined,
+): void {
+  const entries = Object.entries(data);
+  for (const key of Object.keys(data)) {
+    delete data[key];
+  }
+
+  // 1. Token Name / Token Symbol at top
+  if (tokenName) data["Token Name"] = tokenName;
+  if (tokenSymbol) data["Token Symbol"] = tokenSymbol;
+
+  // 2. Original fields
+  for (const [key, value] of entries) {
+    data[key] = value;
+  }
+
+  // 3. tokenMetadata at end
+  if (metadataPda) data.tokenMetadata = metadataPda;
 }
 
 /**
@@ -152,6 +331,11 @@ export async function fetchAndDecode(
     }
 
     const decoded = decodeAccountWithIdl(account.data, account.owner, idl);
+
+    // Enrich token accounts and mints with extra display fields
+    if (decoded.decodedData) {
+      await enrichTokenFields(decoded.decodedData, decoded.accountType, addr, rpcUrl);
+    }
 
     return {
       ...decoded,
@@ -274,6 +458,15 @@ export async function fetchAndDecodeMany(
       notFound: false,
     });
   }
+
+  // Enrich token accounts and mints with extra display fields (parallel)
+  const enrichPromises: Promise<void>[] = [];
+  for (const [addr, result] of results) {
+    if (result.decodedData) {
+      enrichPromises.push(enrichTokenFields(result.decodedData, result.accountType, addr, rpcUrl));
+    }
+  }
+  await Promise.all(enrichPromises);
 
   return results;
 }

@@ -6,11 +6,16 @@ import { useGraph } from "@/contexts/GraphContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useExploreAddress } from "@/hooks/useExploreAddress";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useHistory } from "@/contexts/HistoryContext";
 import { PdaRuleCreator } from "@/components/PdaRuleCreator";
 import { BytesFieldDisplay } from "@/components/BytesFieldDisplay";
+import { TransactionHistory } from "@/components/TransactionHistory";
+import { TokenBalances } from "@/components/TokenBalances";
+import { BalanceChangeHistory } from "@/components/BalanceChangeHistory";
+import { AssetsPanel } from "@/components/AssetsPanel";
+import { MetadataFetcher } from "@/components/MetadataFetcher";
 import { X, GitBranchPlus, ChevronsDownUp, ChevronsUpDown, EyeOff, Eye, ChevronRight } from "lucide-react";
 import { CopyButton } from "@/components/CopyButton";
-import { TransactionHistory } from "@/components/TransactionHistory";
 import { useView } from "@/contexts/ViewContext";
 import { useClearAndExplore } from "@/hooks/useClearAndExplore";
 import { expandAccount } from "@/engine/expandAccount";
@@ -127,20 +132,35 @@ const MAX_WIDTH = 800;
 /** Cache scroll positions per address so navigating back restores position */
 const scrollPositionCache = new Map<string, number>();
 
+/** Cache active tab per address */
+const activeTabCache = new Map<string, TabKey>();
+
+type TabKey = "transactions" | "balanceChanges" | "tokens" | "assets";
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "transactions", label: "Transactions" },
+  { key: "balanceChanges", label: "Balance Changes" },
+  { key: "tokens", label: "Tokens" },
+  { key: "assets", label: "Assets" },
+];
+
 export function NodeDetailPanel() {
   const { state, dispatch, selectedNode, getNodeEdges } = useGraph();
   const { rpcEndpoint, savedPrograms, saveProgram, collapsedAddresses, getBytesEncoding, setBytesEncoding, isCollapsedAddress, addCollapsedAddress, removeCollapsedAddress } = useSettings();
   const exploreAddress = useExploreAddress();
   const { state: viewState, openTransaction } = useView();
   const clearAndExplore = useClearAndExplore();
+  const { addHistoryItem } = useHistory();
   const isMobile = useMediaQuery("(max-width: 1023px)");
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [pdaRuleOpen, setPdaRuleOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabKey>("transactions");
   const isDragging = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevAddressRef = useRef<string | null>(null);
+  const historyTrackedRef = useRef<string | null>(null);
 
   const isOpen = state.selectedNodeId !== null && selectedNode !== undefined;
 
@@ -150,11 +170,18 @@ export function NodeDetailPanel() {
     if (prevAddressRef.current && scrollRef.current) {
       scrollPositionCache.set(prevAddressRef.current, scrollRef.current.scrollTop);
     }
+    // Save active tab for old address
+    if (prevAddressRef.current) {
+      activeTabCache.set(prevAddressRef.current, activeTab);
+    }
     prevAddressRef.current = currentAddress;
-    // Restore scroll position for new node after render
+    // Restore scroll position and tab for new node after render
     if (currentAddress && scrollRef.current) {
       const saved = scrollPositionCache.get(currentAddress);
       scrollRef.current.scrollTop = saved ?? 0;
+    }
+    if (currentAddress) {
+      setActiveTab(activeTabCache.get(currentAddress) ?? "transactions");
     }
   }
 
@@ -165,6 +192,23 @@ export function NodeDetailPanel() {
       scrollRef.current.scrollTop = saved ?? 0;
     }
   }, [currentAddress]);
+
+  // Track account visits in history
+  useEffect(() => {
+    if (!selectedNode || selectedNode.data.isLoading) return;
+    const addr = selectedNode.data.address;
+    if (historyTrackedRef.current === addr) return;
+    historyTrackedRef.current = addr;
+
+    addHistoryItem({
+      type: "account",
+      id: addr,
+      accountType: selectedNode.data.accountType,
+      programName: selectedNode.data.programName,
+      timestamp: Date.now(),
+    });
+  }, [selectedNode?.data.address, selectedNode?.data.isLoading, selectedNode?.data.accountType, selectedNode?.data.programName, addHistoryItem]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const edges = selectedNode ? getNodeEdges(selectedNode.id) : [];
 
   const existingNodeIds = new Set(state.nodes.map((n) => n.id));
@@ -195,10 +239,17 @@ export function NodeDetailPanel() {
 
   if (!isOpen || !selectedNode) return null;
 
-  // Filter decoded fields: hide pubkey values already on the graph
+  // Extract metadata URI from decoded data (Metaplex metadata accounts, DAS assets)
+  const metadataUri = selectedNode.data.decodedData?.uri;
+  const hasMetadataUri = typeof metadataUri === "string" && metadataUri.startsWith("http");
+
+  // Filter decoded fields: hide pubkey values already on the graph, hide uri (rendered by MetadataFetcher)
   const decodedEntries = selectedNode.data.decodedData
     ? Object.entries(selectedNode.data.decodedData).filter(
-        ([, value]) => !isPubkey(value) || !existingNodeIds.has(value),
+        ([key, value]) => {
+          if (key === "uri" && hasMetadataUri) return false;
+          return !isPubkey(value) || !existingNodeIds.has(value);
+        },
       )
     : [];
 
@@ -238,7 +289,8 @@ export function NodeDetailPanel() {
           </div>
         </div>
 
-        <div className="px-4 space-y-4 pb-6">
+        {/* Static info section */}
+        <div className="px-4 space-y-4 pb-2">
           {/* Type */}
           {selectedNode.data.accountType && (
             <div>
@@ -363,14 +415,15 @@ export function NodeDetailPanel() {
             </div>
           )}
 
-          {/* Transaction History */}
-          <TransactionHistory
-            address={selectedNode.data.address}
-            rpcUrl={rpcEndpoint}
-            onTransactionClick={(sig) => {
-              openTransaction(sig);
-            }}
-          />
+          {/* Metadata URI + Fetch */}
+          {hasMetadataUri && (
+            <div>
+              <h4 className="text-xs font-medium text-muted-foreground mb-1">
+                Off-chain Metadata
+              </h4>
+              <MetadataFetcher uri={metadataUri as string} />
+            </div>
+          )}
 
           {/* Connected Edges */}
           {edges.length > 0 && (
@@ -402,7 +455,65 @@ export function NodeDetailPanel() {
               {selectedNode.data.error}
             </div>
           )}
+        </div>
 
+        {/* Tab bar */}
+        <div className="px-4 border-b border-border sticky top-10 bg-background z-10">
+          <div className="flex gap-0 -mb-px overflow-x-auto">
+            {TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`px-3 py-1.5 text-xs whitespace-nowrap border-b-2 transition-colors ${
+                  activeTab === tab.key
+                    ? "border-primary text-foreground font-medium"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tab content */}
+        <div className="px-4 py-3 pb-6">
+          {activeTab === "transactions" && (
+            <TransactionHistory
+              address={selectedNode.data.address}
+              rpcUrl={rpcEndpoint}
+              onTransactionClick={(sig) => {
+                openTransaction(sig);
+              }}
+            />
+          )}
+          {activeTab === "balanceChanges" && (
+            <BalanceChangeHistory
+              address={selectedNode.data.address}
+              rpcUrl={rpcEndpoint}
+              onTransactionClick={(sig) => {
+                openTransaction(sig);
+              }}
+            />
+          )}
+          {activeTab === "tokens" && (
+            <TokenBalances
+              address={selectedNode.data.address}
+              rpcUrl={rpcEndpoint}
+              onTokenClick={(tokenAccount) => {
+                exploreAddress(tokenAccount, { sourceNodeId: selectedNode.id, fieldName: "tokenAccount", depth: 0 });
+              }}
+            />
+          )}
+          {activeTab === "assets" && (
+            <AssetsPanel
+              address={selectedNode.data.address}
+              rpcUrl={rpcEndpoint}
+              onAssetClick={(assetId) => {
+                exploreAddress(assetId, { sourceNodeId: selectedNode.id, fieldName: "asset", depth: 0 });
+              }}
+            />
+          )}
         </div>
 
         {/* Action buttons — sticky at bottom */}

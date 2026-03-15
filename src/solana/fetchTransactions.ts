@@ -38,9 +38,16 @@ export function resetHeliusDetection(): void {
 export async function fetchTransactions(
   addr: string,
   rpcUrl: string,
-  options?: { before?: string; limit?: number },
+  options?: {
+    before?: string;
+    limit?: number;
+    sortOrder?: "asc" | "desc";
+    /** Helius-only: include associated token account transactions */
+    tokenAccounts?: "none" | "balanceChanged" | "all";
+  },
 ): Promise<TransactionPage> {
   const limit = options?.limit ?? 20;
+  const sortOrder = options?.sortOrder ?? "desc";
 
   // Reset detection if URL changed
   if (rpcUrl !== detectedForUrl) {
@@ -51,7 +58,7 @@ export async function fetchTransactions(
   // If we haven't detected yet, try Helius first
   if (heliusDetected === null) {
     try {
-      const result = await fetchViaHelius(addr, rpcUrl, limit, options?.before);
+      const result = await fetchViaHelius(addr, rpcUrl, limit, options?.before, sortOrder, options?.tokenAccounts);
       heliusDetected = true;
       return result;
     } catch (e: unknown) {
@@ -64,7 +71,7 @@ export async function fetchTransactions(
   }
 
   if (heliusDetected) {
-    return fetchViaHelius(addr, rpcUrl, limit, options?.before);
+    return fetchViaHelius(addr, rpcUrl, limit, options?.before, sortOrder, options?.tokenAccounts);
   }
 
   const page = await fetchViaStandardRpc(addr, rpcUrl, limit, options?.before);
@@ -142,12 +149,18 @@ async function fetchViaHelius(
   rpcUrl: string,
   limit: number,
   before?: string,
+  sortOrder: "asc" | "desc" = "desc",
+  tokenAccounts?: "none" | "balanceChanged" | "all",
 ): Promise<TransactionPage> {
   const options: Record<string, unknown> = {
     transactionDetails: "full",
     limit,
+    sortOrder,
   };
   if (before) options.paginationToken = before;
+  if (tokenAccounts && tokenAccounts !== "none") {
+    options.filters = { tokenAccounts };
+  }
 
   const body = {
     jsonrpc: "2.0",

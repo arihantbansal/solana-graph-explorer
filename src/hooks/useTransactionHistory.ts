@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import type { ParsedTransaction, TransactionFilter } from "@/types/transaction";
 import { fetchTransactions, isHeliusEndpoint } from "@/solana/fetchTransactions";
 
@@ -9,6 +9,8 @@ interface TxHistoryCache {
   filter: TransactionFilter;
   scrollTop: number;
   lastAccessed: number;
+  fetchSize: number;
+  sortOrder: "asc" | "desc";
 }
 
 const MAX_CACHE_ENTRIES = 20;
@@ -27,38 +29,56 @@ function evictCache() {
   if (oldest) txHistoryCache.delete(oldest);
 }
 
-function getCached(address: string | undefined) {
-  return address ? txHistoryCache.get(address) : undefined;
+interface TxHistoryOptions {
+  /** Helius-only: include associated token account transactions */
+  tokenAccounts?: "none" | "balanceChanged" | "all";
 }
 
-export function useTransactionHistory(address: string | undefined, rpcUrl: string) {
+function getCacheKey(address: string | undefined, opts?: TxHistoryOptions) {
+  if (!address) return undefined;
+  const suffix = opts?.tokenAccounts && opts.tokenAccounts !== "none" ? `:${opts.tokenAccounts}` : "";
+  return `${address}${suffix}`;
+}
+
+function getCached(address: string | undefined, opts?: TxHistoryOptions) {
+  const key = getCacheKey(address, opts);
+  return key ? txHistoryCache.get(key) : undefined;
+}
+
+export function useTransactionHistory(address: string | undefined, rpcUrl: string, options?: TxHistoryOptions) {
   const prevAddressRef = useRef(address);
-  const oldestSigRef = useRef<string | undefined>(getCached(address)?.oldestSignature);
+  const cacheKey = getCacheKey(address, options);
+  const oldestSigRef = useRef<string | undefined>(getCached(address, options)?.oldestSignature);
 
   const [transactions, setTransactions] = useState<ParsedTransaction[]>(
-    getCached(address)?.transactions ?? [],
+    getCached(address, options)?.transactions ?? [],
   );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(getCached(address)?.hasMore ?? false);
+  const [hasMore, setHasMore] = useState(getCached(address, options)?.hasMore ?? false);
   const [filter, setFilter] = useState<TransactionFilter>(
-    getCached(address)?.filter ?? { timeRange: "all", statusFilter: "all" },
+    getCached(address, options)?.filter ?? { statusFilter: "all" },
   );
-  const [scrollTop, setScrollTop] = useState(getCached(address)?.scrollTop ?? 0);
+  const [scrollTop, setScrollTop] = useState(getCached(address, options)?.scrollTop ?? 0);
+  const [fetchSize, setFetchSize] = useState(getCached(address, options)?.fetchSize ?? 20);
+  const [sortOrder, setSortOrderState] = useState<"asc" | "desc">(
+    getCached(address, options)?.sortOrder ?? "desc",
+  );
+  const sortOrderRef = useRef(sortOrder);
 
   // Synchronous reset when address changes (no useEffect lag)
   if (address !== prevAddressRef.current) {
-    // Save scroll position for the old address before switching
-    // (caller updates scrollTop via saveScrollTop, so current state is already up to date)
-
     prevAddressRef.current = address;
-    const entry = getCached(address);
+    const entry = getCached(address, options);
     if (entry) {
       setTransactions(entry.transactions);
       setHasMore(entry.hasMore);
       oldestSigRef.current = entry.oldestSignature;
       setFilter(entry.filter);
       setScrollTop(entry.scrollTop);
+      setFetchSize(entry.fetchSize);
+      setSortOrderState(entry.sortOrder);
+      sortOrderRef.current = entry.sortOrder;
       entry.lastAccessed = Date.now();
     } else {
       setTransactions([]);
@@ -66,34 +86,39 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
       setHasMore(false);
       oldestSigRef.current = undefined;
       setScrollTop(0);
+      setFetchSize(20);
+      setSortOrderState("desc");
+      sortOrderRef.current = "desc";
     }
   }
 
-  // Save current state to cache (call when state changes meaningfully)
+  // Save current state to cache
   const syncToCache = useCallback(
     (txs: ParsedTransaction[], more: boolean, f: TransactionFilter, scroll: number) => {
-      if (!address || txs.length === 0) return;
-      txHistoryCache.set(address, {
+      if (!cacheKey || txs.length === 0) return;
+      txHistoryCache.set(cacheKey, {
         transactions: txs,
         hasMore: more,
         oldestSignature: oldestSigRef.current,
         filter: f,
         scrollTop: scroll,
         lastAccessed: Date.now(),
+        fetchSize,
+        sortOrder,
       });
       evictCache();
     },
-    [address],
+    [cacheKey, fetchSize, sortOrder],
   );
 
   const saveScrollTop = useCallback(
     (top: number) => {
       setScrollTop(top);
-      if (address && txHistoryCache.has(address)) {
-        txHistoryCache.get(address)!.scrollTop = top;
+      if (cacheKey && txHistoryCache.has(cacheKey)) {
+        txHistoryCache.get(cacheKey)!.scrollTop = top;
       }
     },
-    [address],
+    [cacheKey],
   );
 
   const loadTransactions = useCallback(
@@ -106,7 +131,9 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
       try {
         const page = await fetchTransactions(address, rpcUrl, {
           before,
-          limit: 20,
+          limit: fetchSize,
+          sortOrder: sortOrderRef.current,
+          tokenAccounts: options?.tokenAccounts,
         });
 
         setTransactions((prev) => {
@@ -118,7 +145,6 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
               })()
             : page.transactions;
 
-          // Sync to cache immediately with new data
           syncToCache(next, page.hasMore, filter, scrollTop);
           return next;
         });
@@ -131,7 +157,7 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
         setIsLoading(false);
       }
     },
-    [address, rpcUrl, syncToCache, filter, scrollTop],
+    [address, rpcUrl, syncToCache, filter, scrollTop, fetchSize],
   );
 
   const loadMore = useCallback(() => {
@@ -141,33 +167,31 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
   }, [loadTransactions]);
 
   // Client-side filtering
-  const filteredTransactions = transactions.filter((tx) => {
-    if (filter.statusFilter === "success" && tx.err !== null) return false;
-    if (filter.statusFilter === "failed" && tx.err === null) return false;
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((tx) => {
+      if (filter.statusFilter === "success" && tx.err !== null) return false;
+      if (filter.statusFilter === "failed" && tx.err === null) return false;
 
-    if (filter.timeRange !== "all" && tx.blockTime) {
-      const now = Math.floor(Date.now() / 1000);
-      const ranges: Record<string, number> = {
-        "1h": 3600,
-        "24h": 86400,
-        "7d": 604800,
-        "30d": 2592000,
-      };
-      const maxAge = ranges[filter.timeRange];
-      if (maxAge && now - tx.blockTime > maxAge) return false;
-    }
+      if (tx.blockTime) {
+        if (filter.fromDate && tx.blockTime < filter.fromDate) return false;
+        if (filter.toDate && tx.blockTime > filter.toDate) return false;
+      }
 
-    if (filter.instructionFilter) {
-      const hasMatchingIx = tx.instructions.some(
-        (ix) => ix.decoded?.instructionName === filter.instructionFilter,
-      );
-      if (!hasMatchingIx) return false;
-    }
+      if (filter.instructionFilter) {
+        const hasMatchingIx = tx.instructions.some(
+          (ix) => ix.decoded?.instructionName === filter.instructionFilter,
+        );
+        if (!hasMatchingIx) return false;
+      }
 
-    return true;
-  });
+      return true;
+    });
+  }, [transactions, filter]);
 
   return {
+    /** All filtered transactions */
+    allTransactions: filteredTransactions,
+    /** Alias for allTransactions (backwards compat) */
     transactions: filteredTransactions,
     isLoading,
     error,
@@ -179,5 +203,24 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
     isHelius: isHeliusEndpoint(),
     scrollTop,
     saveScrollTop,
+    // Fetch size (controls how many to load per "Load More")
+    pageSize: fetchSize,
+    setPageSize: (size: number) => {
+      setFetchSize(size);
+    },
+    totalFiltered: filteredTransactions.length,
+    sortOrder,
+    setSortOrder: (order: "asc" | "desc") => {
+      if (order === sortOrder) return;
+      setSortOrderState(order);
+      sortOrderRef.current = order;
+      // Clear loaded data and re-fetch with new order
+      setTransactions([]);
+      setHasMore(false);
+      oldestSigRef.current = undefined;
+      if (cacheKey) txHistoryCache.delete(cacheKey);
+      // loadTransactions reads sortOrderRef, so it picks up the new value immediately
+      loadTransactions();
+    },
   };
 }

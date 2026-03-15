@@ -11,11 +11,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSettings, RPC_OPTIONS, type RpcEndpointKey } from "@/contexts/SettingsContext";
+import { RPC_OPTIONS, type RpcEndpointKey, useSettings } from "@/contexts/SettingsContext";
 import { useView } from "@/contexts/ViewContext";
 import { Search, Bookmark, Minus, Plus } from "lucide-react";
-import { shortenAddress, isTxSignature } from "@/utils/format";
+import { isTxSignature, shortenAddress } from "@/utils/format";
 import { useClearAndExplore } from "@/hooks/useClearAndExplore";
+import { HistoryButton } from "@/components/HistoryButton";
 
 // Accept both addresses and transaction signatures
 const searchSchema = z.object({
@@ -100,12 +101,9 @@ export function SearchBar() {
     },
   });
 
-  const [showLabels, setShowLabels] = useState(false);
-  const { addressLabels } = useSettings();
   const { openTransaction } = useView();
   const clearAndExplore = useClearAndExplore();
   const hasAutoExplored = useRef(false);
-  const labelsRef = useRef<HTMLDivElement>(null);
 
   const addressError = form.formState.errors.address?.message;
 
@@ -140,22 +138,8 @@ export function SearchBar() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Close labels dropdown on outside click
-  useEffect(() => {
-    if (!showLabels) return;
-    const handler = (e: MouseEvent) => {
-      if (labelsRef.current && !labelsRef.current.contains(e.target as Node)) {
-        setShowLabels(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showLabels]);
-
-  const labelEntries = Object.entries(addressLabels);
-
   return (
-    <div className="flex items-center gap-2 p-3 border-b bg-background">
+    <div className="flex items-center gap-2 p-3">
       <div className="flex items-center gap-2 flex-1 max-w-2xl">
         <div className="flex-1 relative">
           <Input
@@ -180,49 +164,68 @@ export function SearchBar() {
           Explore
         </Button>
 
-        {/* Labeled addresses dropdown */}
-        {labelEntries.length > 0 && (
-          <div className="relative" ref={labelsRef}>
-            <Button
-              variant="outline"
-              size="sm"
-              className="hidden md:inline-flex"
-              onClick={() => setShowLabels((p) => !p)}
-              title="Saved labels"
-            >
-              <Bookmark className="size-4" />
-            </Button>
-            {showLabels && (
-              <div className="absolute top-full left-0 mt-1 z-50 bg-background border rounded-md shadow-lg min-w-[240px] max-h-[300px] overflow-y-auto">
-                {labelEntries.map(([addr, lbl]) => (
-                  <button
-                    key={addr}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center justify-between gap-2"
-                    onClick={() => {
-                      form.setValue("address", addr);
-                      setShowLabels(false);
-                      // Auto-explore
-                      const url = new URL(window.location.href);
-                      url.searchParams.set("address", addr);
-                      window.history.replaceState({}, "", url.toString());
-                    }}
-                  >
-                    <span className="font-medium truncate">{lbl}</span>
-                    <span className="text-xs text-muted-foreground font-mono shrink-0">
-                      {shortenAddress(addr, 6)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {/* History button — right next to Explore */}
+        <HistoryButton
+          onAccountClick={(addr) => clearAndExplore(addr)}
+          onTransactionClick={(sig) => openTransaction(sig)}
+        />
       </div>
 
-      <div className="hidden lg:flex items-center gap-2 ml-auto">
-        <DepthControl />
-        <RpcSelector />
-      </div>
+    </div>
+  );
+}
+
+export function BookmarksButton({ onSelect }: { onSelect: (address: string) => void }) {
+  const { addressLabels } = useSettings();
+  const [showLabels, setShowLabels] = useState(false);
+  const labelsRef = useRef<HTMLDivElement>(null);
+
+  const labelEntries = Object.entries(addressLabels);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!showLabels) return;
+    const handler = (e: MouseEvent) => {
+      if (labelsRef.current && !labelsRef.current.contains(e.target as Node)) {
+        setShowLabels(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showLabels]);
+
+  if (labelEntries.length === 0) return null;
+
+  return (
+    <div className="relative" ref={labelsRef}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7"
+        onClick={() => setShowLabels((p) => !p)}
+        title="Saved labels"
+      >
+        <Bookmark className="size-4" />
+      </Button>
+      {showLabels && (
+        <div className="absolute top-full right-0 mt-1 z-50 bg-background border rounded-md shadow-lg min-w-[240px] max-h-[300px] overflow-y-auto">
+          {labelEntries.map(([addr, lbl]) => (
+            <button
+              key={addr}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center justify-between gap-2"
+              onClick={() => {
+                setShowLabels(false);
+                onSelect(addr);
+              }}
+            >
+              <span className="font-medium truncate">{lbl}</span>
+              <span className="text-xs text-muted-foreground font-mono shrink-0">
+                {shortenAddress(addr, 6)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
