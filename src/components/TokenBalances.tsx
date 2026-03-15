@@ -1,5 +1,3 @@
-import { Button } from "@/components/ui/button";
-import { CopyButton } from "@/components/CopyButton";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { shortenAddress } from "@/utils/format";
 import { detectAsset, type DasAssetInfo } from "@/engine/assetDetection";

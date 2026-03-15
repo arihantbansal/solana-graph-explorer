@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CopyButton } from "@/components/CopyButton";
 import { Loader2, ExternalLink, Download, ChevronRight } from "lucide-react";
 
 interface MetadataFetcherProps {

@@ -82,7 +82,7 @@ function SettingsIO() {
 function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const isSm = useMediaQuery("(max-width: 767px)");
-  const { state: viewState, dispatch: viewDispatch, openTransaction, backToGraph } = useView();
+  const { state: viewState, dispatch: viewDispatch, backToGraph } = useView();
   const clearAndExplore = useClearAndExplore();
 
   // When switching back from transaction mode with a pending address, explore it
