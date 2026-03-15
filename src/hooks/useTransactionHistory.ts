@@ -188,11 +188,23 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
     });
   }, [transactions, filter]);
 
+  const setPageSize = useCallback((size: number) => {
+    setFetchSize(size);
+  }, []);
+
+  const setSortOrder = useCallback((order: "asc" | "desc") => {
+    if (order === sortOrder) return;
+    setSortOrderState(order);
+    sortOrderRef.current = order;
+    setTransactions([]);
+    setHasMore(false);
+    oldestSigRef.current = undefined;
+    if (cacheKey) txHistoryCache.delete(cacheKey);
+    loadTransactions();
+  }, [sortOrder, cacheKey, loadTransactions]);
+
   return {
-    /** All filtered transactions */
     allTransactions: filteredTransactions,
-    /** Alias for allTransactions (backwards compat) */
-    transactions: filteredTransactions,
     isLoading,
     error,
     filter,
@@ -203,24 +215,10 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
     isHelius: isHeliusEndpoint(),
     scrollTop,
     saveScrollTop,
-    // Fetch size (controls how many to load per "Load More")
     pageSize: fetchSize,
-    setPageSize: (size: number) => {
-      setFetchSize(size);
-    },
+    setPageSize,
     totalFiltered: filteredTransactions.length,
     sortOrder,
-    setSortOrder: (order: "asc" | "desc") => {
-      if (order === sortOrder) return;
-      setSortOrderState(order);
-      sortOrderRef.current = order;
-      // Clear loaded data and re-fetch with new order
-      setTransactions([]);
-      setHasMore(false);
-      oldestSigRef.current = undefined;
-      if (cacheKey) txHistoryCache.delete(cacheKey);
-      // loadTransactions reads sortOrderRef, so it picks up the new value immediately
-      loadTransactions();
-    },
+    setSortOrder,
   };
 }

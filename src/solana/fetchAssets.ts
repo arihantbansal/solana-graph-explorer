@@ -1,4 +1,4 @@
-import type { DasGetAssetResponse } from "@/engine/assetDetection";
+import { nftInterfaces, type DasGetAssetResponse } from "@/engine/assetDetection";
 
 export interface AssetItem {
   id: string; // asset address
@@ -22,13 +22,6 @@ function parseAssetItem(result: DasGetAssetResponse): AssetItem {
     result.content?.metadata?.name ?? result.id ?? "Unknown";
   const image = result.content?.links?.image ?? null;
 
-  const nftInterfaces = [
-    "V1_NFT",
-    "V2_NFT",
-    "ProgrammableNFT",
-    "V1_PRINT",
-    "LEGACY_NFT",
-  ];
   const isNft = nftInterfaces.includes(result.interface ?? "");
   const isCompressed = result.compression?.compressed ?? false;
   const symbol = result.content?.metadata?.symbol ?? undefined;

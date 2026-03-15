@@ -1,7 +1,7 @@
 import { getProgramDerivedAddress, getAddressEncoder, address as toAddress } from "@solana/kit";
+import { TOKEN_PROGRAM_ID } from "./builtinIdls";
 
 const ASSOCIATED_TOKEN_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
-const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 
 export async function deriveAta(owner: string, mint: string): Promise<string> {
   const encoder = getAddressEncoder();

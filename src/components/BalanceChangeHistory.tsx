@@ -9,9 +9,10 @@ import { shortenAddress, formatRelativeTime, formatAbsoluteTime, lamportsToSol }
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/CopyButton";
-import { LoadMoreFooter, BatchSizeSelect, SortOrderToggle, TimeFormatToggle } from "@/components/LoadMoreFooter";
+import { LoadMoreFooter } from "@/components/LoadMoreFooter";
+import { HistoryControls } from "@/components/HistoryControls";
 import { detectAsset, type DasAssetInfo } from "@/engine/assetDetection";
-import { Loader2, ChevronRight, Calendar } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSettings } from "@/contexts/SettingsContext";
 import type { ParsedTransaction } from "@/types/transaction";
@@ -44,18 +45,6 @@ function getInstructionNames(tx: ParsedTransaction): string[] {
     }
   }
   return names;
-}
-
-function toDateInputValue(ts?: number): string {
-  if (!ts) return "";
-  const d = new Date(ts * 1000);
-  return d.toISOString().slice(0, 16);
-}
-
-function fromDateInputValue(val: string): number | undefined {
-  if (!val) return undefined;
-  const ts = Math.floor(new Date(val).getTime() / 1000);
-  return isNaN(ts) ? undefined : ts;
 }
 
 export function BalanceChangeHistory({
@@ -194,30 +183,19 @@ export function BalanceChangeHistory({
     return rows;
   }, [ataHistory.allTransactions, selectedAta, selectedMint]);
 
-  // Fetch asset info for mints from token balances (for searchable picker labels)
-  useEffect(() => {
-    if (tokenBalances.tokens.length === 0) return;
-    let cancelled = false;
+  // Fetch asset info for all known mints (from token balances + tx history SPL rows)
+  const allKnownMints = useMemo(() => {
+    const mints = new Set<string>(allMints);
     for (const t of tokenBalances.tokens) {
-      if (!assetInfos.has(t.mint)) {
-        detectAsset(t.mint, rpcUrl).then((info) => {
-          if (cancelled) return;
-          setAssetInfos((prev) => {
-            const next = new Map(prev);
-            next.set(t.mint, info);
-            return next;
-          });
-        });
-      }
+      mints.add(t.mint);
     }
-    return () => { cancelled = true; };
-  }, [tokenBalances.tokens, rpcUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+    return mints;
+  }, [allMints, tokenBalances.tokens]);
 
-  // Fetch asset info for mints discovered in tx history SPL rows (Helius balanceChanged)
   useEffect(() => {
-    if (allMints.size === 0) return;
+    if (allKnownMints.size === 0) return;
     let cancelled = false;
-    for (const mint of allMints) {
+    for (const mint of allKnownMints) {
       if (!assetInfos.has(mint)) {
         detectAsset(mint, rpcUrl).then((info) => {
           if (cancelled) return;
@@ -230,7 +208,7 @@ export function BalanceChangeHistory({
       }
     }
     return () => { cancelled = true; };
-  }, [allMints, rpcUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [allKnownMints, rpcUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isHelius = mainHistory.isHelius;
 
@@ -301,9 +279,6 @@ export function BalanceChangeHistory({
     return getLabel(mint) ?? shortenAddress(mint);
   }
 
-  function getMintLabel(mint: string): string {
-    return getMintDisplayName(mint);
-  }
 
   // Filter tokens for the searchable dropdown
   const filteredTokens = useMemo(() => {
@@ -438,56 +413,22 @@ export function BalanceChangeHistory({
       </div>
 
       {/* Secondary controls row */}
-      <div className="flex items-center gap-3 text-[10px] text-muted-foreground px-1">
-        <button
-          className="flex items-center gap-1 hover:text-foreground"
-          onClick={() => setDateOpen(!dateOpen)}
-        >
-          <Calendar className="size-3" />
-          {fromDate || toDate ? "Date filter active" : "Date range"}
-          <ChevronRight className={`size-3 transition-transform ${dateOpen ? "rotate-90" : ""}`} />
-        </button>
-        <span className="text-border">|</span>
-        <BatchSizeSelect
-          value={useAtaSource ? ataHistory.pageSize : mainHistory.pageSize}
-          onChange={useAtaSource ? ataHistory.setPageSize : mainHistory.setPageSize}
-        />
-        <TimeFormatToggle absolute={absoluteTime} onChange={setAbsoluteTime} />
-        {isHelius && (
-          <SortOrderToggle
-            sortOrder={useAtaSource ? ataHistory.sortOrder : mainHistory.sortOrder}
-            onChange={useAtaSource ? ataHistory.setSortOrder : mainHistory.setSortOrder}
-          />
-        )}
-      </div>
-      <div>
-        {dateOpen && (
-          <div className="flex flex-wrap gap-1.5 items-center text-xs mt-1.5">
-            <label className="text-muted-foreground">From</label>
-            <input
-              type="datetime-local"
-              className="h-6 px-1 text-[11px] rounded border border-border bg-background text-foreground w-[155px]"
-              value={toDateInputValue(fromDate)}
-              onChange={(e) => { setFromDate(fromDateInputValue(e.target.value));}}
-            />
-            <label className="text-muted-foreground">To</label>
-            <input
-              type="datetime-local"
-              className="h-6 px-1 text-[11px] rounded border border-border bg-background text-foreground w-[155px]"
-              value={toDateInputValue(toDate)}
-              onChange={(e) => { setToDate(fromDateInputValue(e.target.value));}}
-            />
-            {(fromDate || toDate) && (
-              <button
-                className="text-[10px] text-muted-foreground hover:text-foreground underline"
-                onClick={() => { setFromDate(undefined); setToDate(undefined);}}
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+      <HistoryControls
+        dateOpen={dateOpen}
+        setDateOpen={setDateOpen}
+        fromDate={fromDate}
+        toDate={toDate}
+        onFromDateChange={setFromDate}
+        onToDateChange={setToDate}
+        pageSize={useAtaSource ? ataHistory.pageSize : mainHistory.pageSize}
+        onPageSizeChange={useAtaSource ? ataHistory.setPageSize : mainHistory.setPageSize}
+        absoluteTime={absoluteTime}
+        onAbsoluteTimeChange={setAbsoluteTime}
+        isHelius={isHelius}
+        sortOrder={useAtaSource ? ataHistory.sortOrder : mainHistory.sortOrder}
+        onSortOrderChange={useAtaSource ? ataHistory.setSortOrder : mainHistory.setSortOrder}
+        className="px-1"
+      />
 
       {/* SPL: prompt to select a mint */}
       {mintFilter === "spl" && !selectedMint && !tokenBalances.isLoading && tokenBalances.tokens.length > 0 && (
@@ -571,7 +512,7 @@ export function BalanceChangeHistory({
                       </span>
                       {row.mint && (
                         <div className="text-[10px] text-muted-foreground">
-                          {getMintLabel(row.mint)}
+                          {getMintDisplayName(row.mint)}
                         </div>
                       )}
                     </td>

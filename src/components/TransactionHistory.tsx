@@ -8,29 +8,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CopyButton } from "@/components/CopyButton";
-import { LoadMoreFooter, BatchSizeSelect, SortOrderToggle, TimeFormatToggle } from "@/components/LoadMoreFooter";
+import { LoadMoreFooter } from "@/components/LoadMoreFooter";
+import { HistoryControls } from "@/components/HistoryControls";
 import { useTransactionHistory } from "@/hooks/useTransactionHistory";
 import type { TransactionFilter } from "@/types/transaction";
-import { History, Loader2, ChevronRight, Calendar } from "lucide-react";
-import { useState } from "react";
+import { History, Loader2 } from "lucide-react";
+import { useState, useMemo } from "react";
 import { shortenAddress, formatRelativeTime, formatAbsoluteTime } from "@/utils/format";
 
 interface TransactionHistoryProps {
   address: string;
   rpcUrl: string;
   onTransactionClick: (signature: string) => void;
-}
-
-function toDateInputValue(ts?: number): string {
-  if (!ts) return "";
-  const d = new Date(ts * 1000);
-  return d.toISOString().slice(0, 16);
-}
-
-function fromDateInputValue(val: string): number | undefined {
-  if (!val) return undefined;
-  const ts = Math.floor(new Date(val).getTime() / 1000);
-  return isNaN(ts) ? undefined : ts;
 }
 
 export function TransactionHistory({
@@ -60,15 +49,17 @@ export function TransactionHistory({
 
   const hasLoaded = allTransactions.length > 0 || isLoading || error !== null;
 
-  // Collect unique instruction names from ALL loaded transactions for the filter dropdown
-  const instructionNames = new Set<string>();
-  for (const tx of allTransactions) {
-    for (const ix of tx.instructions) {
-      if (ix.decoded?.instructionName) {
-        instructionNames.add(ix.decoded.instructionName);
+  const instructionNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const tx of allTransactions) {
+      for (const ix of tx.instructions) {
+        if (ix.decoded?.instructionName) {
+          names.add(ix.decoded.instructionName);
+        }
       }
     }
-  }
+    return names;
+  }, [allTransactions]);
 
   const updateFilter = (partial: Partial<TransactionFilter>) => {
     setFilter((prev) => ({ ...prev, ...partial }));
@@ -150,50 +141,21 @@ export function TransactionHistory({
           </div>
 
           {/* Secondary controls row */}
-          <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-            <button
-              className="flex items-center gap-1 hover:text-foreground"
-              onClick={() => setDateOpen(!dateOpen)}
-            >
-              <Calendar className="size-3" />
-              {filter.fromDate || filter.toDate ? "Date filter active" : "Date range"}
-              <ChevronRight className={`size-3 transition-transform ${dateOpen ? "rotate-90" : ""}`} />
-            </button>
-            <span className="text-border">|</span>
-            <BatchSizeSelect value={pageSize} onChange={setPageSize} />
-            <TimeFormatToggle absolute={absoluteTime} onChange={setAbsoluteTime} />
-            {isHelius && (
-              <SortOrderToggle sortOrder={sortOrder} onChange={setSortOrder} />
-            )}
-          </div>
-          <div>
-            {dateOpen && (
-              <div className="flex flex-wrap gap-1.5 items-center text-xs mt-1.5">
-                <label className="text-muted-foreground">From</label>
-                <input
-                  type="datetime-local"
-                  className="h-6 px-1 text-[11px] rounded border border-border bg-background text-foreground w-[155px]"
-                  value={toDateInputValue(filter.fromDate)}
-                  onChange={(e) => updateFilter({ fromDate: fromDateInputValue(e.target.value) })}
-                />
-                <label className="text-muted-foreground">To</label>
-                <input
-                  type="datetime-local"
-                  className="h-6 px-1 text-[11px] rounded border border-border bg-background text-foreground w-[155px]"
-                  value={toDateInputValue(filter.toDate)}
-                  onChange={(e) => updateFilter({ toDate: fromDateInputValue(e.target.value) })}
-                />
-                {(filter.fromDate || filter.toDate) && (
-                  <button
-                    className="text-[10px] text-muted-foreground hover:text-foreground underline"
-                    onClick={() => updateFilter({ fromDate: undefined, toDate: undefined })}
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          <HistoryControls
+            dateOpen={dateOpen}
+            setDateOpen={setDateOpen}
+            fromDate={filter.fromDate}
+            toDate={filter.toDate}
+            onFromDateChange={(ts) => updateFilter({ fromDate: ts })}
+            onToDateChange={(ts) => updateFilter({ toDate: ts })}
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            absoluteTime={absoluteTime}
+            onAbsoluteTimeChange={setAbsoluteTime}
+            isHelius={isHelius}
+            sortOrder={sortOrder}
+            onSortOrderChange={setSortOrder}
+          />
 
           {/* Results count */}
           {totalFiltered > 0 && (

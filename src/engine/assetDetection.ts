@@ -28,6 +28,14 @@ export interface DasGetAssetResponse {
   };
 }
 
+export const nftInterfaces = [
+  "V1_NFT",
+  "V2_NFT",
+  "ProgrammableNFT",
+  "V1_PRINT",
+  "LEGACY_NFT",
+];
+
 // Cache: address → DasAssetInfo | null (null = confirmed no asset)
 const assetCache = new Map<string, DasAssetInfo | null>();
 // Track in-flight requests to deduplicate concurrent calls for the same address
@@ -103,13 +111,6 @@ export function parseAssetResponse(
     result.content?.metadata?.name ?? result.id ?? "Unknown";
   const image = result.content?.links?.image ?? null;
 
-  const nftInterfaces = [
-    "V1_NFT",
-    "V2_NFT",
-    "ProgrammableNFT",
-    "V1_PRINT",
-    "LEGACY_NFT",
-  ];
   const isNft = nftInterfaces.includes(result.interface ?? "");
 
   const owner = result.ownership?.owner ?? null;

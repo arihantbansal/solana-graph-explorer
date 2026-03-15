@@ -41,6 +41,20 @@ export function formatAbsoluteTime(unixTimestamp: number): string {
   return new Date(unixTimestamp * 1000).toLocaleString();
 }
 
+/** Convert a unix timestamp (seconds) to a datetime-local input value string */
+export function toDateInputValue(ts?: number): string {
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  return d.toISOString().slice(0, 16);
+}
+
+/** Convert a datetime-local input value string to a unix timestamp (seconds) */
+export function fromDateInputValue(val: string): number | undefined {
+  if (!val) return undefined;
+  const ts = Math.floor(new Date(val).getTime() / 1000);
+  return isNaN(ts) ? undefined : ts;
+}
+
 /** Check if a string looks like a transaction signature (base58, ~87-88 chars) */
 export function isTxSignature(value: string): boolean {
   return /^[1-9A-HJ-NP-Za-km-z]{80,90}$/.test(value);

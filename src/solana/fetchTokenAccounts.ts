@@ -1,5 +1,6 @@
 import { address } from "@solana/kit";
 import { getRpc } from "./rpc";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "./builtinIdls";
 
 export interface TokenAccountInfo {
   address: string; // the token account (ATA) address
@@ -9,9 +10,6 @@ export interface TokenAccountInfo {
   decimals: number;
   uiAmount: number; // human-readable
 }
-
-const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
-const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
 interface ParsedTokenAccountData {
   parsed: {
