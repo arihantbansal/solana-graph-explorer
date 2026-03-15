@@ -141,7 +141,7 @@ export function AccountEdgeComponent({
       {label && (
         <EdgeLabelRenderer>
           <div
-            className="absolute text-[10px] bg-background/90 px-1 py-0.5 rounded border border-border text-muted-foreground pointer-events-all nodrag nopan flex items-center gap-1"
+            className="absolute text-[10px] bg-background px-1 py-0.5 rounded border border-border text-muted-foreground dark:text-foreground/70 pointer-events-all nodrag nopan flex items-center gap-1"
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
             }}

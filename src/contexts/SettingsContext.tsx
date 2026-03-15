@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useState,
   type ReactNode,
 } from "react";
@@ -26,6 +27,7 @@ const BYTES_ENCODINGS_KEY = "solana-graph-explorer:bytes-encodings";
 const PDA_SEARCHES_KEY = "solana-graph-explorer:saved-pda-searches";
 const COLLAPSED_ADDRESSES_KEY = "solana-graph-explorer:collapsed-addresses";
 const EXPANSION_DEPTH_KEY = "solana-graph-explorer:expansion-depth";
+const DARK_MODE_KEY = "solana-graph-explorer:dark-mode";
 const DEFAULT_EXPANSION_DEPTH = 2;
 
 /** Map of "accountType:fieldName" → preferred encoding */
@@ -75,6 +77,8 @@ interface SettingsContextValue {
   isCollapsedAddress: (address: string) => boolean;
   expansionDepth: number;
   setExpansionDepth: (depth: number) => void;
+  darkMode: boolean;
+  setDarkMode: (dark: boolean) => void;
   exportSettings: () => string;
   importSettings: (json: string) => void;
 }
@@ -147,6 +151,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [savedPdaSearches, setSavedPdaSearches] = usePersistedState<SavedPdaSearch[]>(PDA_SEARCHES_KEY, []);
   const [collapsedAddresses, setCollapsedAddresses] = usePersistedState<string[]>(COLLAPSED_ADDRESSES_KEY, []);
   const [expansionDepth, setExpansionDepthState] = usePersistedState<number>(EXPANSION_DEPTH_KEY, DEFAULT_EXPANSION_DEPTH);
+  const [darkMode, setDarkModeState] = usePersistedState<boolean>(DARK_MODE_KEY, window.matchMedia("(prefers-color-scheme: dark)").matches);
+
+  // Sync .dark class on <html> element
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+  }, [darkMode]);
+
+  const setDarkMode = useCallback((dark: boolean) => {
+    setDarkModeState(dark);
+  }, [setDarkModeState]);
 
   const rpcEndpoint =
     rpcEndpointKey === "custom"
@@ -293,9 +307,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       savedPdaSearches,
       collapsedAddresses,
       expansionDepth,
+      darkMode,
       history,
     }, null, 2);
-  }, [rpcEndpointKey, customRpcUrl, relationshipRules, savedPrograms, addressLabels, bytesEncodings, savedPdaSearches, collapsedAddresses, expansionDepth]);
+  }, [rpcEndpointKey, customRpcUrl, relationshipRules, savedPrograms, addressLabels, bytesEncodings, savedPdaSearches, collapsedAddresses, expansionDepth, darkMode]);
 
   const importSettings = useCallback((json: string) => {
     const data = JSON.parse(json);
@@ -368,6 +383,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     if (typeof data.expansionDepth === "number") {
       setExpansionDepthState(Math.max(1, Math.min(5, data.expansionDepth)));
     }
+    if (typeof data.darkMode === "boolean") {
+      setDarkModeState(data.darkMode);
+    }
     // Import history
     if (Array.isArray(data.history)) {
       localStorage.setItem("solana-graph-explorer:history", JSON.stringify(data.history));
@@ -405,6 +423,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         isCollapsedAddress,
         expansionDepth,
         setExpansionDepth,
+        darkMode,
+        setDarkMode,
         exportSettings,
         importSettings,
       }}

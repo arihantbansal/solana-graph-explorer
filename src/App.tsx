@@ -15,7 +15,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { useRelationshipRules } from "@/hooks/useRelationshipRules";
 import { useClearAndExplore } from "@/hooks/useClearAndExplore";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import { Download, Upload, Menu } from "lucide-react";
+import { Download, Upload, Menu, Sun, Moon } from "lucide-react";
 import { HistoryProvider } from "@/contexts/HistoryContext";
 
 function RelationshipRuleEngine() {
@@ -76,6 +76,21 @@ function SettingsIO() {
         <Upload className="size-3.5" />
       </Button>
     </>
+  );
+}
+
+function DarkModeToggle() {
+  const { darkMode, setDarkMode } = useSettings();
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-7"
+      onClick={() => setDarkMode(!darkMode)}
+      title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      {darkMode ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
+    </Button>
   );
 }
 
@@ -190,6 +205,7 @@ function AppLayout() {
             <div>
               <h4 className="text-xs font-medium text-muted-foreground mb-2">Settings</h4>
               <div className="flex items-center gap-2">
+                <DarkModeToggle />
                 <SettingsIO />
               </div>
             </div>
