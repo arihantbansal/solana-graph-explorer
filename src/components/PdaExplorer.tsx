@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
+import { useAsyncCallback } from "react-async-hook";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,18 +37,66 @@ export function PdaExplorer({ program }: PdaExplorerProps) {
 
   const [selectedPdaIndex, setSelectedPdaIndex] = useState<string>("");
   const [seedValues, setSeedValues] = useState<SeedInputValue[]>([]);
-  const [derivedAddress, setDerivedAddress] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const selectedPda: PdaDefinition | null =
     selectedPdaIndex !== "" ? pdaDefinitions[Number(selectedPdaIndex)] ?? null : null;
 
+  // Use refs so the async callback always sees current values
+  const selectedPdaRef = useRef(selectedPda);
+  selectedPdaRef.current = selectedPda;
+  const seedValuesRef = useRef(seedValues);
+  seedValuesRef.current = seedValues;
+
+  const { loading: isLoading, error, result: derivedAddress, execute: handleDerive, reset: resetDerive } = useAsyncCallback(async () => {
+    const pda = selectedPdaRef.current;
+    if (!pda) return undefined;
+
+    const seedBuffers = await buildSeedBuffers(seedValuesRef.current);
+    const programAddr = address(pda.programId);
+
+    const [derivedAddr] = await getProgramDerivedAddress({
+      programAddress: programAddr,
+      seeds: seedBuffers,
+    });
+
+    const derived = derivedAddr as string;
+
+    // Add to graph and expand
+    const position = { x: 400, y: 300 };
+    const existingIds = new Set(state.nodes.map((n) => n.id));
+
+    dispatch({
+      type: "ADD_NODES",
+      nodes: [
+        {
+          id: derived,
+          type: "account",
+          position,
+          data: { address: derived, isExpanded: false, isLoading: true },
+        },
+      ],
+    });
+    dispatch({ type: "SELECT_NODE", nodeId: derived });
+
+    existingIds.add(derived);
+    await expandAccount({
+      address: derived,
+      sourcePosition: position,
+      rpcUrl: rpcEndpoint,
+      existingNodeIds: existingIds,
+      dispatch,
+      options: {
+        onIdlFetched: makeIdlFetchedHandler(saveProgram),
+      },
+    });
+
+    return derived;
+  });
+
   const handlePdaSelect = useCallback(
     (indexStr: string) => {
       setSelectedPdaIndex(indexStr);
-      setDerivedAddress(null);
-      setError(null);
+      resetDerive();
       const pda = pdaDefinitions[Number(indexStr)];
       if (pda) {
         setSeedValues(
@@ -59,7 +108,7 @@ export function PdaExplorer({ program }: PdaExplorerProps) {
         );
       }
     },
-    [pdaDefinitions],
+    [pdaDefinitions, resetDerive],
   );
 
   const handleSeedChange = useCallback(
@@ -72,60 +121,6 @@ export function PdaExplorer({ program }: PdaExplorerProps) {
     },
     [],
   );
-
-  const handleDerive = useCallback(async () => {
-    if (!selectedPda) return;
-
-    setIsLoading(true);
-    setError(null);
-    setDerivedAddress(null);
-
-    try {
-      const seedBuffers = await buildSeedBuffers(seedValues);
-      const programAddr = address(selectedPda.programId);
-
-      const [pda] = await getProgramDerivedAddress({
-        programAddress: programAddr,
-        seeds: seedBuffers,
-      });
-
-      const derived = pda as string;
-      setDerivedAddress(derived);
-
-      // Add to graph and expand
-      const position = { x: 400, y: 300 };
-      const existingIds = new Set(state.nodes.map((n) => n.id));
-
-      dispatch({
-        type: "ADD_NODES",
-        nodes: [
-          {
-            id: derived,
-            type: "account",
-            position,
-            data: { address: derived, isExpanded: false, isLoading: true },
-          },
-        ],
-      });
-      dispatch({ type: "SELECT_NODE", nodeId: derived });
-
-      existingIds.add(derived);
-      await expandAccount({
-        address: derived,
-        sourcePosition: position,
-        rpcUrl: rpcEndpoint,
-        existingNodeIds: existingIds,
-        dispatch,
-        options: {
-          onIdlFetched: makeIdlFetchedHandler(saveProgram),
-        },
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to derive PDA");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedPda, seedValues, state.nodes, dispatch, rpcEndpoint, saveProgram]);
 
   if (!program.idl) {
     return (
@@ -204,7 +199,7 @@ export function PdaExplorer({ program }: PdaExplorerProps) {
 
           {error && (
             <div className="text-xs text-destructive bg-destructive/10 p-2 rounded">
-              {error}
+              {error.message}
             </div>
           )}
         </>

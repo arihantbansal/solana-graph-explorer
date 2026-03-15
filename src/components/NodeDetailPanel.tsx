@@ -14,7 +14,10 @@ import { TokenBalances } from "@/components/TokenBalances";
 import { BalanceChangeHistory } from "@/components/BalanceChangeHistory";
 import { AssetsPanel } from "@/components/AssetsPanel";
 import { MetadataFetcher } from "@/components/MetadataFetcher";
-import { X, GitBranchPlus, ChevronsDownUp, ChevronsUpDown, EyeOff, Eye, ChevronRight } from "lucide-react";
+import { IdlViewer } from "@/components/IdlViewer";
+import { ProgramAccounts } from "@/components/ProgramAccounts";
+import { hasIdl } from "@/solana/idlCache";
+import { X, GitBranchPlus, ChevronsDownUp, ChevronsUpDown, EyeOff, Eye, ChevronRight, ExternalLink, Shield } from "lucide-react";
 import { CopyButton } from "@/components/CopyButton";
 import { useView } from "@/contexts/ViewContext";
 import { useClearAndExplore } from "@/hooks/useClearAndExplore";
@@ -135,18 +138,23 @@ const scrollPositionCache = new Map<string, number>();
 /** Cache active tab per address */
 const activeTabCache = new Map<string, TabKey>();
 
-type TabKey = "transactions" | "balanceChanges" | "tokens" | "assets";
+type TabKey = "transactions" | "balanceChanges" | "tokens" | "assets" | "idl" | "accounts";
 
-const TABS: { key: TabKey; label: string }[] = [
+const BASE_TABS: { key: TabKey; label: string }[] = [
   { key: "transactions", label: "Transactions" },
   { key: "balanceChanges", label: "Balance Changes" },
   { key: "tokens", label: "Tokens" },
   { key: "assets", label: "Assets" },
 ];
 
+const PROGRAM_TABS: { key: TabKey; label: string }[] = [
+  { key: "transactions", label: "Transactions" },
+  { key: "accounts", label: "Accounts" },
+];
+
 export function NodeDetailPanel() {
   const { state, dispatch, selectedNode, getNodeEdges } = useGraph();
-  const { rpcEndpoint, savedPrograms, saveProgram, collapsedAddresses, getBytesEncoding, setBytesEncoding, isCollapsedAddress, addCollapsedAddress, removeCollapsedAddress } = useSettings();
+  const { rpcEndpoint, savedPrograms, saveProgram, collapsedAddresses, getBytesEncoding, setBytesEncoding, isCollapsedAddress, addCollapsedAddress, removeCollapsedAddress, getLabel } = useSettings();
   const exploreAddress = useExploreAddress();
   const { state: viewState, openTransaction } = useView();
   const clearAndExplore = useClearAndExplore();
@@ -212,6 +220,16 @@ export function NodeDetailPanel() {
   const edges = selectedNode ? getNodeEdges(selectedNode.id) : [];
 
   const existingNodeIds = new Set(state.nodes.map((n) => n.id));
+
+  // Compute dynamic tabs — programs get Transactions + Accounts + IDL; others get base tabs
+  const tabs = (() => {
+    const isProgram = !!selectedNode?.data.programInfo;
+    const result = isProgram ? [...PROGRAM_TABS] : [...BASE_TABS];
+    if (isProgram && hasIdl(selectedNode!.data.address)) {
+      result.push({ key: "idl", label: "IDL" });
+    }
+    return result;
+  })();
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     isDragging.current = true;
@@ -281,9 +299,13 @@ export function NodeDetailPanel() {
                 {selectedNode.data.address}
               </button>
             ) : (
-              <div className="font-mono text-xs text-muted-foreground break-all">
+              <button
+                onClick={() => clearAndExplore(selectedNode.data.address)}
+                className="font-mono text-xs text-blue-500 hover:underline break-all text-left cursor-pointer"
+                title="Explore this account"
+              >
                 {selectedNode.data.address}
-              </div>
+              </button>
             )}
             <CopyButton value={selectedNode.data.address} />
           </div>
@@ -343,6 +365,152 @@ export function NodeDetailPanel() {
               </div>
             </div>
           )}
+
+          {/* Program Info */}
+          {selectedNode.data.programInfo && (() => {
+            const pi = selectedNode.data.programInfo;
+            return (
+              <div className="rounded-md border border-border overflow-hidden">
+                {/* Status bar */}
+                <div className={`px-3 py-1.5 text-xs font-medium flex items-center justify-between ${
+                  pi.isUpgradeable
+                    ? "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
+                    : "bg-green-500/10 text-green-700 dark:text-green-400"
+                }`}>
+                  <span>{pi.isUpgradeable ? "Upgradeable" : "Immutable"}</span>
+                  <span className="font-mono text-[10px] opacity-70">Slot {pi.lastDeployedSlot.toLocaleString()}</span>
+                </div>
+
+                <div className="divide-y divide-border">
+                  {/* Authority */}
+                  <div className="px-3 py-2">
+                    <div className="text-[10px] text-muted-foreground mb-0.5">
+                      Upgrade Authority
+                      {pi.squadsInfo && (
+                        <Badge variant="secondary" className="ml-1.5 text-[9px] px-1 py-0 bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/20">
+                          Squads {pi.squadsInfo.version.toUpperCase()}
+                        </Badge>
+                      )}
+                    </div>
+                    {pi.authority ? (
+                      <div className="flex items-start gap-1">
+                        <button
+                          onClick={() => exploreAddress(pi.authority!, { sourceNodeId: selectedNode.id, fieldName: "authority", depth: 0 })}
+                          className="font-mono text-[11px] text-blue-500 hover:underline break-all text-left cursor-pointer"
+                        >
+                          {getLabel(pi.authority) ?? pi.authority}
+                        </button>
+                        <CopyButton value={pi.authority} iconSize="size-2.5" />
+                      </div>
+                    ) : (
+                      <span className="font-mono text-[11px] text-muted-foreground">None (Immutable)</span>
+                    )}
+                  </div>
+
+                  {/* Program Data */}
+                  <div className="px-3 py-2">
+                    <div className="text-[10px] text-muted-foreground mb-0.5">Program Data</div>
+                    <div className="flex items-start gap-1">
+                      <button
+                        onClick={() => exploreAddress(pi.programdataAddress, { sourceNodeId: selectedNode.id, fieldName: "programdata", depth: 0 })}
+                        className="font-mono text-[11px] text-blue-500 hover:underline break-all text-left cursor-pointer"
+                      >
+                        {getLabel(pi.programdataAddress) ?? pi.programdataAddress}
+                      </button>
+                      <CopyButton value={pi.programdataAddress} iconSize="size-2.5" />
+                    </div>
+                  </div>
+
+                  {/* Security.txt */}
+                  {pi.securityTxt && Object.keys(pi.securityTxt).length > 0 && (
+                    <div className="px-3 py-2">
+                      <div className="text-[10px] text-muted-foreground mb-1.5 flex items-center gap-1">
+                        <Shield className="size-3" />
+                        security.txt
+                      </div>
+                      <div className="space-y-1">
+                        {Object.entries(pi.securityTxt).filter(([, v]) => v).map(([key, value]) => (
+                          <div key={key} className="flex items-baseline justify-between gap-3 text-[11px]">
+                            <span className="text-muted-foreground whitespace-nowrap">{key}</span>
+                            <span className="text-right break-all">
+                              {value.startsWith("http://") || value.startsWith("https://") ? (
+                                <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline inline-flex items-center gap-0.5">
+                                  {value.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                                  <ExternalLink className="size-2 inline shrink-0" />
+                                </a>
+                              ) : (
+                                <span className="font-mono">{value}</span>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Squads Multisig Info (for system accounts associated with a multisig) */}
+          {selectedNode.data.squadsInfo && (() => {
+            const si = selectedNode.data.squadsInfo;
+            const md = si.multisigData as Record<string, unknown> | undefined;
+            const members = md?.members as Array<{ key: string; permissions: number }> | undefined;
+            return (
+              <div className="rounded-md border border-purple-500/20 overflow-hidden">
+                <div className="px-3 py-1.5 text-xs font-medium bg-purple-500/10 text-purple-700 dark:text-purple-400 flex items-center justify-between">
+                  <span>Squads {si.version.toUpperCase()} Multisig</span>
+                  {md?.threshold !== undefined && members && (
+                    <span className="font-mono text-[10px] opacity-80">{String(md.threshold)}/{members.length} threshold</span>
+                  )}
+                </div>
+                <div className="divide-y divide-border">
+                  {/* Multisig config account */}
+                  <div className="px-3 py-2">
+                    <div className="text-[10px] text-muted-foreground mb-0.5">Multisig Config</div>
+                    <div className="flex items-start gap-1">
+                      <button
+                        onClick={() => exploreAddress(si.multisigAddress, { sourceNodeId: selectedNode.id, fieldName: "multisig", depth: 0 })}
+                        className="font-mono text-[11px] text-blue-500 hover:underline break-all text-left cursor-pointer"
+                      >
+                        {getLabel(si.multisigAddress) ?? si.multisigAddress}
+                      </button>
+                      <CopyButton value={si.multisigAddress} iconSize="size-2.5" />
+                    </div>
+                  </div>
+                  {/* Members */}
+                  {members && members.length > 0 && (
+                    <div className="px-3 py-2">
+                      <div className="text-[10px] text-muted-foreground mb-1">Members ({members.length})</div>
+                      <div className="space-y-1">
+                        {members.map((m, i) => {
+                          const perms: string[] = [];
+                          if (m.permissions & 1) perms.push("Propose");
+                          if (m.permissions & 2) perms.push("Vote");
+                          if (m.permissions & 4) perms.push("Execute");
+                          return (
+                            <div key={i} className="flex items-start gap-1.5">
+                              <button
+                                onClick={() => exploreAddress(m.key, { sourceNodeId: selectedNode.id, fieldName: `member[${i}]`, depth: 0 })}
+                                className="font-mono text-[10px] text-blue-500 hover:underline break-all text-left cursor-pointer shrink min-w-0"
+                              >
+                                {getLabel(m.key) ?? m.key}
+                              </button>
+                              <CopyButton value={m.key} iconSize="size-2" />
+                              <span className="text-[9px] text-muted-foreground whitespace-nowrap shrink-0">
+                                {perms.join(", ") || `perm:${m.permissions}`}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Decoded Fields */}
           {decodedEntries.length > 0 && (
@@ -460,7 +628,7 @@ export function NodeDetailPanel() {
         {/* Tab bar */}
         <div className="px-4 border-b border-border sticky top-10 bg-background z-10">
           <div className="flex gap-0 -mb-px overflow-x-auto">
-            {TABS.map((tab) => (
+            {tabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
@@ -513,6 +681,18 @@ export function NodeDetailPanel() {
                 exploreAddress(assetId, { sourceNodeId: selectedNode.id, fieldName: "asset", depth: 0 });
               }}
             />
+          )}
+          {activeTab === "accounts" && (
+            <ProgramAccounts
+              programAddress={selectedNode.data.address}
+              rpcUrl={rpcEndpoint}
+              onAccountClick={(addr) => {
+                exploreAddress(addr, { sourceNodeId: selectedNode.id, fieldName: "programAccount", depth: 0 });
+              }}
+            />
+          )}
+          {activeTab === "idl" && (
+            <IdlViewer programAddress={selectedNode.data.address} />
           )}
         </div>
 

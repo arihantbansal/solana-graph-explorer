@@ -8,6 +8,7 @@ import type { Idl, IdlTypeDef } from "@/types/idl";
 export const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 export const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 export const METAPLEX_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
+export const SQUADS_V4_PROGRAM_ID = "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf";
 
 /**
  * SPL Token program IDL.
@@ -172,6 +173,58 @@ export const metaplexMetadataIdl: Idl = {
   ],
 };
 
+/**
+ * Squads Multisig V4 program IDL.
+ *
+ * Anchor program — accounts identified by 8-byte discriminator.
+ * Discriminator = sha256("account:<TypeName>")[0..8]
+ *
+ * Multisig account: the main config account for a Squad.
+ * Members is a variable-length Vec<Member>.
+ * Member.permissions is a bitmask: 1=Propose, 2=Vote, 4=Execute (7=All).
+ */
+export const squadsV4Idl: Idl = {
+  address: SQUADS_V4_PROGRAM_ID,
+  metadata: {
+    name: "squads_multisig_program",
+    version: "4.0.0",
+  },
+  instructions: [],
+  accounts: [
+    // sha256("account:Multisig")[0..8] = [224, 116, 121, 186, 68, 161, 79, 236]
+    { name: "Multisig", discriminator: [224, 116, 121, 186, 68, 161, 79, 236] },
+  ],
+  types: [
+    {
+      name: "Multisig",
+      type: {
+        kind: "struct",
+        fields: [
+          { name: "createKey", type: "pubkey" },
+          { name: "configAuthority", type: "pubkey" },
+          { name: "threshold", type: "u16" },
+          { name: "timeLock", type: "u32" },
+          { name: "transactionIndex", type: "u64" },
+          { name: "staleTransactionIndex", type: "u64" },
+          { name: "rentCollector", type: { option: "pubkey" } },
+          { name: "bump", type: "u8" },
+          { name: "members", type: { vec: { defined: "Member" } } },
+        ],
+      },
+    },
+    {
+      name: "Member",
+      type: {
+        kind: "struct",
+        fields: [
+          { name: "key", type: "pubkey" },
+          { name: "permissions", type: "u8" },
+        ],
+      },
+    },
+  ],
+};
+
 /** Metaplex key byte → account type mapping */
 const METAPLEX_KEY_MAP: Record<number, string> = {
   4: "metadata",
@@ -196,6 +249,19 @@ export function identifyBuiltinAccount(
     if (dataLength >= TOKEN_ACCOUNT_SIZE) {
       const typeDef = splTokenIdl.types!.find((t) => t.name === "tokenAccount")!;
       return { name: "tokenAccount", typeDef, idl: splTokenIdl };
+    }
+  }
+
+  // Squads V4: Anchor program with standard 8-byte discriminators
+  if (owner === SQUADS_V4_PROGRAM_ID && data && data.length >= 8) {
+    const disc = squadsV4Idl.accounts![0].discriminator;
+    let match = true;
+    for (let i = 0; i < 8; i++) {
+      if (data[i] !== disc[i]) { match = false; break; }
+    }
+    if (match) {
+      const typeDef = squadsV4Idl.types!.find((t) => t.name === "Multisig")!;
+      return { name: "Multisig", typeDef, idl: squadsV4Idl };
     }
   }
 
@@ -240,6 +306,9 @@ export function getBuiltinIdl(programId: string): Idl | null {
   }
   if (programId === METAPLEX_METADATA_PROGRAM_ID) {
     return metaplexMetadataIdl;
+  }
+  if (programId === SQUADS_V4_PROGRAM_ID) {
+    return squadsV4Idl;
   }
   return null;
 }

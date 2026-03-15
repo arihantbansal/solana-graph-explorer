@@ -51,6 +51,8 @@ export function AccountNodeComponent({ id: nodeId, data }: NodeProps<AccountNode
     decodedData,
     thumbnail,
     error,
+    programInfo,
+    squadsInfo,
   } = data;
 
   const { state, dispatch } = useGraph();
@@ -214,12 +216,17 @@ export function AccountNodeComponent({ id: nodeId, data }: NodeProps<AccountNode
           />
         )}
 
-        {/* Type badge + IDL signer/writable badges */}
-        {(accountType && accountType !== "Unknown") || isSigner || isWritable ? (
+        {/* Type badge + IDL signer/writable badges + Squads badge */}
+        {(accountType && accountType !== "Unknown") || isSigner || isWritable || squadsInfo ? (
           <div className="flex gap-1 flex-wrap">
             {accountType && accountType !== "Unknown" && (
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                 {accountType}
+              </Badge>
+            )}
+            {squadsInfo && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-purple-500/50 text-purple-600 dark:text-purple-400">
+                Squads {squadsInfo.version.toUpperCase()}
               </Badge>
             )}
             {isSigner && (
@@ -235,6 +242,18 @@ export function AccountNodeComponent({ id: nodeId, data }: NodeProps<AccountNode
           </div>
         ) : null}
 
+        {/* Squads multisig summary */}
+        {squadsInfo?.multisigData && (() => {
+          const md = squadsInfo.multisigData as Record<string, unknown>;
+          const members = md.members as Array<{ key: string; permissions: number }> | undefined;
+          if (!members) return null;
+          return (
+            <div className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">
+              {String(md.threshold ?? "?")}/{members.length} multisig
+            </div>
+          );
+        })()}
+
         {/* Program name */}
         {programName && (
           <div className="text-[10px] text-muted-foreground truncate">
@@ -246,6 +265,50 @@ export function AccountNodeComponent({ id: nodeId, data }: NodeProps<AccountNode
         {balance !== undefined && (
           <div className="text-[11px] font-mono text-muted-foreground">
             {lamportsToSol(balance)} SOL
+          </div>
+        )}
+
+        {/* Program info for executable accounts */}
+        {programInfo && (
+          <div className="border-t pt-1.5 mt-1 space-y-0.5">
+            <div className="flex justify-between gap-2 text-[10px]">
+              <span className="text-muted-foreground shrink-0">status</span>
+              <span className={`font-medium ${programInfo.isUpgradeable ? "text-yellow-600 dark:text-yellow-400" : "text-green-600 dark:text-green-400"}`}>
+                {programInfo.isUpgradeable ? "Upgradeable" : "Immutable"}
+              </span>
+            </div>
+            {programInfo.authority && (
+              <div className="flex justify-between gap-2 text-[10px]">
+                <span className="text-muted-foreground shrink-0">authority</span>
+                <button
+                  onClick={(e) => handleFieldClick(e, "authority", programInfo.authority)}
+                  className="font-mono truncate text-right text-blue-500 hover:underline cursor-pointer"
+                  title={`Explore ${programInfo.authority}`}
+                >
+                  {getLabel(programInfo.authority!) ?? formatFieldValue(programInfo.authority)}
+                </button>
+              </div>
+            )}
+            {programInfo.squadsInfo && (
+              <div className="flex justify-between gap-2 text-[10px]">
+                <span className="text-muted-foreground shrink-0">multisig</span>
+                <span className="font-mono text-purple-600 dark:text-purple-400">Squads {programInfo.squadsInfo.version.toUpperCase()}</span>
+              </div>
+            )}
+            <div className="flex justify-between gap-2 text-[10px]">
+              <span className="text-muted-foreground shrink-0">programdata</span>
+              <button
+                onClick={(e) => handleFieldClick(e, "programdata", programInfo.programdataAddress)}
+                className="font-mono truncate text-right text-blue-500 hover:underline cursor-pointer"
+                title={`Explore ${programInfo.programdataAddress}`}
+              >
+                {getLabel(programInfo.programdataAddress) ?? formatFieldValue(programInfo.programdataAddress)}
+              </button>
+            </div>
+            <div className="flex justify-between gap-2 text-[10px]">
+              <span className="text-muted-foreground shrink-0">deployed slot</span>
+              <span className="font-mono truncate text-right">{programInfo.lastDeployedSlot.toLocaleString()}</span>
+            </div>
           </div>
         )}
 

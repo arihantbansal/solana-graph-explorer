@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useAsyncCallback } from "react-async-hook";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ExternalLink, Download, ChevronRight } from "lucide-react";
@@ -8,24 +8,11 @@ interface MetadataFetcherProps {
 }
 
 export function MetadataFetcher({ uri }: MetadataFetcherProps) {
-  const [metadata, setMetadata] = useState<Record<string, unknown> | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchMetadata = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const resp = await fetch(uri);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = await resp.json();
-      setMetadata(json);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to fetch metadata");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const { loading, error, result: metadata, execute: fetchMetadata } = useAsyncCallback(async () => {
+    const resp = await fetch(uri);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json() as Record<string, unknown>;
+  });
 
   return (
     <div className="space-y-2">
@@ -41,7 +28,7 @@ export function MetadataFetcher({ uri }: MetadataFetcherProps) {
       </div>
 
       {/* Fetch button or results */}
-      {!metadata && !isLoading && !error && (
+      {!metadata && !loading && !error && (
         <Button
           variant="outline"
           size="sm"
@@ -53,7 +40,7 @@ export function MetadataFetcher({ uri }: MetadataFetcherProps) {
         </Button>
       )}
 
-      {isLoading && (
+      {loading && (
         <div className="flex items-center justify-center py-2 text-xs text-muted-foreground">
           <Loader2 className="size-3 mr-1.5 animate-spin" />
           Fetching metadata...
@@ -62,7 +49,7 @@ export function MetadataFetcher({ uri }: MetadataFetcherProps) {
 
       {error && (
         <div className="text-xs text-destructive bg-destructive/10 p-2 rounded">
-          {error}
+          {error.message}
           <button
             className="ml-2 underline"
             onClick={fetchMetadata}

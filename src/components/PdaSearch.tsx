@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useAsyncCallback } from "react-async-hook";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -51,7 +52,6 @@ import {
   ChevronRight,
   Plus,
 } from "lucide-react";
-import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useClearAndExplore } from "@/hooks/useClearAndExplore";
 import { shortenAddress } from "@/utils/format";
 
@@ -153,25 +153,28 @@ function FavoriteSearchCard({
     defaultValues: defaultFieldValues,
   });
 
-  const asyncAction = useAsyncAction<string>();
+  const favoriteRef = useRef(favorite);
+  favoriteRef.current = favorite;
+  const formRef = useRef(form);
+  formRef.current = form;
 
-  const handleDeriveAndExplore = useCallback(async () => {
-    const fieldValues = form.getValues();
+  const asyncAction = useAsyncCallback(async () => {
+    const fieldValues = formRef.current.getValues();
+    const fav = favoriteRef.current;
 
     // Build full seed inputs
     const inputs: SeedInputValue[] = [];
-    for (let i = 0; i < favorite.seeds.length; i++) {
-      const seed = favorite.seeds[i];
+    for (let i = 0; i < fav.seeds.length; i++) {
+      const seed = fav.seeds[i];
       if (seed.kind === "const") {
         inputs.push({ seed, value: "" });
         continue;
       }
-      const pre = favorite.prefilledValues.find((p) => p.seedIndex === i);
+      const pre = fav.prefilledValues.find((p) => p.seedIndex === i);
       const userValue = fieldValues[String(i)];
       const value = userValue ?? pre?.value ?? "";
       if (!value.trim()) {
-        asyncAction.setError(`"${"path" in seed ? seed.path : "const"}" is required`);
-        return;
+        throw new Error(`"${"path" in seed ? seed.path : "const"}" is required`);
       }
       inputs.push({
         seed,
@@ -181,21 +184,22 @@ function FavoriteSearchCard({
       });
     }
 
-    const result = await asyncAction.run(async () => {
-      const seedBuffers = await buildSeedBuffers(inputs);
-      const programAddr = address(favorite.programId);
-      const [pda] = await getProgramDerivedAddress({
-        programAddress: programAddr,
-        seeds: seedBuffers,
-      });
-      return pda as string;
+    const seedBuffers = await buildSeedBuffers(inputs);
+    const programAddr = address(fav.programId);
+    const [pda] = await getProgramDerivedAddress({
+      programAddress: programAddr,
+      seeds: seedBuffers,
     });
+    return pda as string;
+  });
 
+  const handleDeriveAndExplore = useCallback(async () => {
+    const result = await asyncAction.execute();
     if (!result) return;
 
     clearAndExplore(result);
     onClose();
-  }, [favorite, form, clearAndExplore, onClose, asyncAction]);
+  }, [clearAndExplore, onClose, asyncAction]);
 
   return (
     <div className="p-3 space-y-2">
@@ -245,16 +249,16 @@ function FavoriteSearchCard({
       )}
 
       {asyncAction.error && (
-        <div className="text-[10px] text-destructive">{asyncAction.error}</div>
+        <div className="text-[10px] text-destructive">{asyncAction.error.message}</div>
       )}
 
       <Button
         size="sm"
         className="w-full h-7 text-xs"
         onClick={handleDeriveAndExplore}
-        disabled={asyncAction.isLoading}
+        disabled={asyncAction.loading}
       >
-        {asyncAction.isLoading ? (
+        {asyncAction.loading ? (
           <Loader2 className="size-3 animate-spin mr-1" />
         ) : (
           <Search className="size-3 mr-1" />
@@ -334,8 +338,6 @@ function PdaSearchDialog({
     name: "customSeeds",
   });
 
-  const deriveAction = useAsyncAction<string>();
-
   const [loadedSeeds, setLoadedSeeds] = useState<IdlSeed[]>([]);
 
   const selectedProgramId = form.watch("selectedProgramId");
@@ -346,6 +348,75 @@ function PdaSearchDialog({
   const favoriteName = form.watch("favoriteName");
 
   const isCustomPda = selectedPdaIndex === CUSTOM_PDA_VALUE;
+
+  // Refs for async callback to always see current values
+  const formRef = useRef(form);
+  formRef.current = form;
+  const seedFieldsRef = useRef(seedFields);
+  seedFieldsRef.current = seedFields;
+  const customSeedsRef = useRef(customSeeds);
+  customSeedsRef.current = customSeeds;
+
+  const deriveAction = useAsyncCallback(async (args: {
+    effectiveProgramId: string;
+    currentSeeds: IdlSeed[];
+    isCustomPda: boolean;
+  }) => {
+    const { effectiveProgramId, currentSeeds, isCustomPda: isCustom } = args;
+
+    if (!effectiveProgramId) throw new Error("Enter a program ID");
+
+    if (isCustom) {
+      const cs = customSeedsRef.current;
+      if (cs.length === 0) throw new Error("Add at least one seed");
+      for (const c of cs) {
+        if (!c.value.trim()) throw new Error(`Seed "${c.label || "unnamed"}" needs a value`);
+      }
+      const inputs: SeedInputValue[] = cs.map((c) => ({
+        seed: customSeedToIdlSeed(c),
+        value: c.value,
+        bufferEncoding: c.type === "pubkey" ? "base58" : c.encoding,
+        transform: c.transform,
+      }));
+      const seedBuffers = await buildSeedBuffers(inputs);
+      const programAddr = address(effectiveProgramId);
+      const [pda] = await getProgramDerivedAddress({
+        programAddress: programAddr,
+        seeds: seedBuffers,
+      });
+      return pda as string;
+    }
+
+    if (currentSeeds.length === 0) throw new Error("Select a PDA first");
+
+    const sf = seedFieldsRef.current;
+    const inputs: SeedInputValue[] = [];
+    for (let i = 0; i < currentSeeds.length; i++) {
+      const seed = currentSeeds[i];
+      const field = sf[i];
+      if (!field) throw new Error("Missing seed value");
+      if (seed.kind === "const") {
+        inputs.push({ seed, value: "", transform: field.transform });
+      } else if (!field.value.trim()) {
+        throw new Error(`Seed "${"path" in seed ? seed.path : "const"}" is required`);
+      } else {
+        inputs.push({
+          seed,
+          value: field.value,
+          bufferEncoding: field.encoding,
+          transform: field.transform,
+        });
+      }
+    }
+
+    const seedBuffers = await buildSeedBuffers(inputs);
+    const programAddr = address(effectiveProgramId);
+    const [pda] = await getProgramDerivedAddress({
+      programAddress: programAddr,
+      seeds: seedBuffers,
+    });
+    return pda as string;
+  });
 
   // Reset all state when dialog closes
   useEffect(() => {
@@ -482,79 +553,8 @@ function PdaSearchDialog({
   const derivedAddress = deriveAction.result;
 
   const handleDerive = useCallback(async () => {
-    if (!effectiveProgramId) {
-      deriveAction.setError("Enter a program ID");
-      return;
-    }
-
-    if (isCustomPda) {
-      if (customSeeds.length === 0) {
-        deriveAction.setError("Add at least one seed");
-        return;
-      }
-      for (const cs of customSeeds) {
-        if (!cs.value.trim()) {
-          deriveAction.setError(`Seed "${cs.label || "unnamed"}" needs a value`);
-          return;
-        }
-      }
-
-      await deriveAction.run(async () => {
-        const inputs: SeedInputValue[] = customSeeds.map((cs) => ({
-          seed: customSeedToIdlSeed(cs),
-          value: cs.value,
-          bufferEncoding: cs.type === "pubkey" ? "base58" : cs.encoding,
-          transform: cs.transform,
-        }));
-        const seedBuffers = await buildSeedBuffers(inputs);
-        const programAddr = address(effectiveProgramId);
-        const [pda] = await getProgramDerivedAddress({
-          programAddress: programAddr,
-          seeds: seedBuffers,
-        });
-        return pda as string;
-      });
-      return;
-    }
-
-    if (currentSeeds.length === 0) {
-      deriveAction.setError("Select a PDA first");
-      return;
-    }
-
-    const inputs: SeedInputValue[] = [];
-    for (let i = 0; i < currentSeeds.length; i++) {
-      const seed = currentSeeds[i];
-      const field = seedFields[i];
-      if (!field) {
-        deriveAction.setError("Missing seed value");
-        return;
-      }
-      if (seed.kind === "const") {
-        inputs.push({ seed, value: "", transform: field.transform });
-      } else if (!field.value.trim()) {
-        deriveAction.setError(`Seed "${"path" in seed ? seed.path : "const"}" is required`);
-        return;
-      } else {
-        inputs.push({
-          seed,
-          value: field.value,
-          bufferEncoding: field.encoding,
-          transform: field.transform,
-        });
-      }
-    }
-
-    await deriveAction.run(async () => {
-      const seedBuffers = await buildSeedBuffers(inputs);
-      const programAddr = address(effectiveProgramId);
-      const [pda] = await getProgramDerivedAddress({
-        programAddress: programAddr,
-        seeds: seedBuffers,
-      });
-      return pda as string;
-    });
-  }, [effectiveProgramId, currentSeeds, seedFields, isCustomPda, customSeeds, deriveAction]);
+    await deriveAction.execute({ effectiveProgramId, currentSeeds, isCustomPda });
+  }, [effectiveProgramId, currentSeeds, isCustomPda, deriveAction]);
 
   const handleExplore = useCallback(async () => {
     if (!derivedAddress) return;
@@ -959,12 +959,12 @@ function PdaSearchDialog({
               <div className="flex gap-2">
                 <Button
                   onClick={handleDerive}
-                  disabled={deriveAction.isLoading}
+                  disabled={deriveAction.loading}
                   size="sm"
                   variant="outline"
                   className="flex-1"
                 >
-                  {deriveAction.isLoading ? (
+                  {deriveAction.loading ? (
                     <Loader2 className="size-3.5 animate-spin mr-1" />
                   ) : (
                     <FlaskConical className="size-3.5 mr-1" />
@@ -989,7 +989,7 @@ function PdaSearchDialog({
               )}
               {deriveAction.error && (
                 <div className="text-xs text-destructive bg-destructive/10 p-2 rounded">
-                  {deriveAction.error}
+                  {deriveAction.error.message}
                 </div>
               )}
 
