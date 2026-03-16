@@ -82,7 +82,8 @@ export async function derivePdaFromRule(
     });
 
     return pda as string;
-  } catch {
+  } catch (err) {
+    console.warn("Failed to derive PDA from relationship rule", err);
     return null;
   }
 }

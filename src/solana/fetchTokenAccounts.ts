@@ -33,31 +33,28 @@ function parseTokenAccounts(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   response: any,
 ): TokenAccountInfo[] {
-  const accounts: TokenAccountInfo[] = [];
   const value = response?.value;
-  if (!Array.isArray(value)) return accounts;
+  if (!Array.isArray(value)) return [];
 
-  for (const item of value) {
+  return value.flatMap((item): TokenAccountInfo[] => {
     try {
-      const pubkey = item.pubkey;
       const data = item.account?.data as ParsedTokenAccountData;
       const info = data?.parsed?.info;
-      if (!info) continue;
+      if (!info) return [];
 
-      accounts.push({
-        address: typeof pubkey === "string" ? pubkey : String(pubkey),
+      return [{
+        address: typeof item.pubkey === "string" ? item.pubkey : String(item.pubkey),
         mint: info.mint,
         owner: info.owner,
         amount: BigInt(info.tokenAmount.amount),
         decimals: info.tokenAmount.decimals,
         uiAmount: info.tokenAmount.uiAmount ?? 0,
-      });
-    } catch {
-      // Skip malformed accounts
+      }];
+    } catch (err) {
+      console.warn("Failed to parse token account, skipping malformed entry", err);
+      return [];
     }
-  }
-
-  return accounts;
+  });
 }
 
 export async function fetchTokenAccounts(

@@ -19,45 +19,38 @@ export function decodeInstruction(
   let dataBytes: Uint8Array;
   try {
     dataBytes = new Uint8Array(base58Encoder.encode(instruction.data));
-  } catch {
+  } catch (err) {
+    console.warn("Failed to decode base58 instruction data", err);
     return null;
   }
 
   // Need at least 8 bytes for the discriminator
   if (dataBytes.length < 8) return null;
 
-  for (const ix of idl.instructions) {
-    const disc = ix.discriminator;
-    if (!disc || disc.length !== 8) continue;
+  const matched = idl.instructions.find(
+    (ix) =>
+      ix.discriminator?.length === 8 &&
+      ix.discriminator.every((b, i) => b === dataBytes[i]),
+  );
 
-    let match = true;
-    for (let i = 0; i < 8; i++) {
-      if (dataBytes[i] !== disc[i]) {
-        match = false;
-        break;
-      }
-    }
+  if (!matched) return null;
 
-    if (match) {
-      try {
-        const reader = new BorshReader(dataBytes);
-        reader.offset = 8; // skip discriminator
-        const args = ix.args.length > 0 ? decodeFields(reader, ix.args, idl) : {};
-        return {
-          instructionName: ix.name,
-          args,
-          programName: idl.metadata?.name,
-        };
-      } catch {
-        // Discriminator matched but decoding failed — still return the name
-        return {
-          instructionName: ix.name,
-          args: {},
-          programName: idl.metadata?.name,
-        };
-      }
-    }
+  try {
+    const reader = new BorshReader(dataBytes);
+    reader.offset = 8; // skip discriminator
+    const args = matched.args.length > 0 ? decodeFields(reader, matched.args, idl) : {};
+    return {
+      instructionName: matched.name,
+      args,
+      programName: idl.metadata?.name,
+    };
+  } catch (err) {
+    console.warn("Failed to decode instruction args after discriminator match", err);
+    // Discriminator matched but decoding failed — still return the name
+    return {
+      instructionName: matched.name,
+      args: {},
+      programName: idl.metadata?.name,
+    };
   }
-
-  return null;
 }

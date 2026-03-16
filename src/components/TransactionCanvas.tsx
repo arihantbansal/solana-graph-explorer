@@ -237,7 +237,8 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
               n.id === canvasNodeId ? { ...n, data: { ...n.data, ...enrichData } } : n,
             ),
           );
-        } catch {
+        } catch (err) {
+          console.warn(`Failed to fetch and decode account ${addr} for transaction canvas`, err);
           const errData = { isLoading: false, error: "Failed to fetch" };
           dispatch({ type: "SET_NODE_DATA", nodeId: canvasNodeId, data: errData });
           setNodes((prev) =>

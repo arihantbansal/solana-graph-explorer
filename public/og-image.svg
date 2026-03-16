@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9945FF"/>
+      <stop offset="100%" stop-color="#14F195"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0a0a14"/>
+      <stop offset="100%" stop-color="#0e0e1a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Subtle grid pattern -->
+  <g stroke="#9945FF" stroke-width="0.5" opacity="0.06">
+    <line x1="0" y1="0" x2="0" y2="630"/><line x1="60" y1="0" x2="60" y2="630"/>
+    <line x1="120" y1="0" x2="120" y2="630"/><line x1="180" y1="0" x2="180" y2="630"/>
+    <line x1="240" y1="0" x2="240" y2="630"/><line x1="300" y1="0" x2="300" y2="630"/>
+    <line x1="360" y1="0" x2="360" y2="630"/><line x1="420" y1="0" x2="420" y2="630"/>
+    <line x1="480" y1="0" x2="480" y2="630"/><line x1="540" y1="0" x2="540" y2="630"/>
+    <line x1="600" y1="0" x2="600" y2="630"/><line x1="660" y1="0" x2="660" y2="630"/>
+    <line x1="720" y1="0" x2="720" y2="630"/><line x1="780" y1="0" x2="780" y2="630"/>
+    <line x1="840" y1="0" x2="840" y2="630"/><line x1="900" y1="0" x2="900" y2="630"/>
+    <line x1="960" y1="0" x2="960" y2="630"/><line x1="1020" y1="0" x2="1020" y2="630"/>
+    <line x1="1080" y1="0" x2="1080" y2="630"/><line x1="1140" y1="0" x2="1140" y2="630"/>
+    <line x1="0" y1="0" x2="1200" y2="0"/><line x1="0" y1="60" x2="1200" y2="60"/>
+    <line x1="0" y1="120" x2="1200" y2="120"/><line x1="0" y1="180" x2="1200" y2="180"/>
+    <line x1="0" y1="240" x2="1200" y2="240"/><line x1="0" y1="300" x2="1200" y2="300"/>
+    <line x1="0" y1="360" x2="1200" y2="360"/><line x1="0" y1="420" x2="1200" y2="420"/>
+    <line x1="0" y1="480" x2="1200" y2="480"/><line x1="0" y1="540" x2="1200" y2="540"/>
+    <line x1="0" y1="600" x2="1200" y2="600"/>
+  </g>
+
+  <!-- Graph visualization - decorative nodes and edges -->
+  <!-- Edges -->
+  <g stroke="url(#g)" stroke-width="2" opacity="0.3">
+    <line x1="150" y1="200" x2="320" y2="150"/>
+    <line x1="320" y1="150" x2="280" y2="340"/>
+    <line x1="150" y1="200" x2="280" y2="340"/>
+    <line x1="280" y1="340" x2="180" y2="440"/>
+    <line x1="150" y1="200" x2="80" y2="360"/>
+    <line x1="80" y1="360" x2="180" y2="440"/>
+    <line x1="320" y1="150" x2="450" y2="250"/>
+    <line x1="280" y1="340" x2="450" y2="250"/>
+    <line x1="180" y1="440" x2="330" y2="500"/>
+    <line x1="450" y1="250" x2="330" y2="500"/>
+
+    <line x1="850" y1="180" x2="1020" y2="130"/>
+    <line x1="1020" y1="130" x2="1100" y2="280"/>
+    <line x1="850" y1="180" x2="1100" y2="280"/>
+    <line x1="850" y1="180" x2="780" y2="340"/>
+    <line x1="1100" y1="280" x2="1050" y2="430"/>
+    <line x1="780" y1="340" x2="900" y2="480"/>
+    <line x1="1050" y1="430" x2="900" y2="480"/>
+  </g>
+
+  <!-- Left cluster nodes -->
+  <circle cx="150" cy="200" r="16" fill="#9945FF" opacity="0.8"/>
+  <circle cx="320" cy="150" r="12" fill="#b96bff" opacity="0.8"/>
+  <circle cx="280" cy="340" r="18" fill="#14F195" opacity="0.8"/>
+  <circle cx="80" cy="360" r="10" fill="#19d68c" opacity="0.7"/>
+  <circle cx="180" cy="440" r="14" fill="#9945FF" opacity="0.7"/>
+  <circle cx="450" cy="250" r="11" fill="#14F195" opacity="0.7"/>
+  <circle cx="330" cy="500" r="9" fill="#b96bff" opacity="0.6"/>
+
+  <!-- Right cluster nodes -->
+  <circle cx="850" cy="180" r="14" fill="#14F195" opacity="0.8"/>
+  <circle cx="1020" cy="130" r="11" fill="#9945FF" opacity="0.8"/>
+  <circle cx="1100" cy="280" r="16" fill="#b96bff" opacity="0.8"/>
+  <circle cx="780" cy="340" r="10" fill="#19d68c" opacity="0.7"/>
+  <circle cx="1050" cy="430" r="12" fill="#14F195" opacity="0.7"/>
+  <circle cx="900" cy="480" r="13" fill="#9945FF" opacity="0.7"/>
+
+  <!-- Node glow effects -->
+  <circle cx="280" cy="340" r="30" fill="#14F195" opacity="0.08"/>
+  <circle cx="150" cy="200" r="28" fill="#9945FF" opacity="0.08"/>
+  <circle cx="1100" cy="280" r="28" fill="#b96bff" opacity="0.08"/>
+
+  <!-- Center text area -->
+  <text x="600" y="270" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="56" font-weight="700" fill="white" letter-spacing="-1">
+    Chewing Glass Explorer
+  </text>
+  <text x="600" y="330" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="24" fill="#a0a0b8" letter-spacing="0.5">
+    Visualize accounts, transactions &amp; relationships on Solana
+  </text>
+
+  <!-- Gradient accent line below text -->
+  <rect x="400" y="355" width="400" height="2" rx="1" fill="url(#g)" opacity="0.5"/>
+
+  <!-- Border -->
+  <rect x="0" y="0" width="1200" height="630" fill="none" stroke="url(#g)" stroke-width="2" opacity="0.2"/>
+</svg>

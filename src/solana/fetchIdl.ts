@@ -109,10 +109,10 @@ export function parseMetadataIdlAccount(data: Uint8Array): Idl | null {
 export function tryParseIdlFromAccount(account: FetchedAccount): Idl | null {
   try {
     return parseAnchorIdlAccount(account.data);
-  } catch { /* not legacy format */ }
+  } catch (err) { console.warn("Failed to parse IDL as legacy Anchor format", err); }
   try {
     return parseMetadataIdlAccount(account.data);
-  } catch { /* not metadata format */ }
+  } catch (err) { console.warn("Failed to parse IDL as Program Metadata format", err); }
   return null;
 }
 
@@ -156,7 +156,7 @@ export async function fetchIdl(
     if (account) {
       try {
         return parseAnchorIdlAccount(account.data);
-      } catch { /* parse failed */ }
+      } catch (err) { console.warn(`Failed to parse legacy Anchor IDL for program ${programId}`, err); }
     }
   }
 
@@ -166,7 +166,7 @@ export async function fetchIdl(
     if (account) {
       try {
         return parseMetadataIdlAccount(account.data);
-      } catch { /* parse failed */ }
+      } catch (err) { console.warn(`Failed to parse metadata IDL for program ${programId}`, err); }
     }
   }
 

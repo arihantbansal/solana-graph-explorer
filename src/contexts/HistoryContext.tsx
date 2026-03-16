@@ -35,8 +35,8 @@ function loadHistory(): HistoryItem[] {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed as HistoryItem[];
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn("Failed to load history from localStorage", err);
   }
   return [];
 }

@@ -338,9 +338,9 @@ export function PdaRuleCreator({
   // Keep ref in sync with latest buildSeedInputs
   buildSeedInputsRef.current = buildSeedInputs;
 
-  const handleDerive = useCallback(async () => {
+  const handleDeriveAction = useAsyncCallback(async () => {
     await deriveAction.execute();
-  }, [deriveAction]);
+  });
 
   const derivedAddress = deriveAction.result;
 
@@ -383,7 +383,7 @@ export function PdaRuleCreator({
     };
   }, [currentSeeds, seedMappings, nodeData, label, effectiveProgramId, selectedPda, selectedRule]);
 
-  const handleAddToGraph = useCallback(async () => {
+  const handleAddToGraphAction = useAsyncCallback(async () => {
     if (!derivedAddress) return;
 
     const existingIds = new Set(state.nodes.map((n) => n.id));
@@ -428,7 +428,7 @@ export function PdaRuleCreator({
     dispatch({ type: "SELECT_NODE", nodeId: derivedAddress });
 
     existingIds.add(derivedAddress);
-    expandAccount({
+    await expandAccount({
       address: derivedAddress,
       sourcePosition: position,
       rpcUrl: rpcEndpoint,
@@ -440,18 +440,7 @@ export function PdaRuleCreator({
     });
 
     onOpenChange(false);
-  }, [
-    derivedAddress,
-    state.nodes,
-    dispatch,
-    nodeId,
-    rpcEndpoint,
-    saveProgram,
-    onOpenChange,
-    buildPdaRule,
-    label,
-    selectedPda,
-  ]);
+  });
 
   const handleSaveAsRule = useCallback(() => {
     const rule = buildPdaRule();
@@ -681,7 +670,7 @@ export function PdaRuleCreator({
 
               <div className="flex gap-2">
                 <Button
-                  onClick={handleDerive}
+                  onClick={handleDeriveAction.execute}
                   disabled={deriveAction.loading}
                   size="sm"
                   variant="outline"
@@ -695,7 +684,7 @@ export function PdaRuleCreator({
                   Test Derive
                 </Button>
                 <Button
-                  onClick={handleAddToGraph}
+                  onClick={handleAddToGraphAction.execute}
                   disabled={!derivedAddress}
                   size="sm"
                   className="flex-1"

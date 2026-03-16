@@ -118,7 +118,7 @@ function decodeAccountWithIdl(
       if (decodedData && owner === METAPLEX_METADATA_PROGRAM_ID) {
         trimNullPaddedStrings(decodedData);
       }
-    } catch { /* decoding failed */ }
+    } catch (err) { console.warn("Failed to decode builtin account data", err); }
   } else if (idl) {
     programName = idl.metadata?.name ?? owner;
     const identified = identifyAccountType(data, idl);
@@ -128,7 +128,7 @@ function decodeAccountWithIdl(
       if (typeDef) {
         try {
           decodedData = decodeAccountData(data, typeDef, idl);
-        } catch { /* decoding failed */ }
+        } catch (err) { console.warn("Failed to decode account data with IDL", err); }
       }
     }
   }
@@ -189,7 +189,7 @@ async function enrichTokenAccount(
     const asset = await detectAsset(mintAddr, rpcUrl);
     if (asset?.name) tokenName = asset.name;
     if (asset?.symbol) tokenSymbol = asset.symbol;
-  } catch { /* DAS unavailable */ }
+  } catch (err) { console.warn("Failed to detect asset via DAS for token account", err); }
 
   // Format amount using mint decimals
   let formattedAmount: string | undefined;
@@ -210,7 +210,7 @@ async function enrichTokenAccount(
           });
         }
       }
-    } catch { /* mint fetch failed */ }
+    } catch (err) { console.warn("Failed to fetch mint account for token amount formatting", err); }
   }
 
   // Rebuild decodedData with Token Name/Symbol at top and amount/amount_raw adjacent
@@ -229,13 +229,13 @@ async function enrichMintAccount(
     const asset = await detectAsset(mintAddress, rpcUrl);
     if (asset?.name) tokenName = asset.name;
     if (asset?.symbol) tokenSymbol = asset.symbol;
-  } catch { /* DAS unavailable */ }
+  } catch (err) { console.warn("Failed to detect asset via DAS for mint account", err); }
 
   // Derive and add the token metadata PDA address
   let metadataPda: string | undefined;
   try {
     metadataPda = await deriveMetadataPda(mintAddress);
-  } catch { /* derivation failed */ }
+  } catch (err) { console.warn("Failed to derive Metaplex metadata PDA", err); }
 
   // Rebuild with Token Name/Symbol at top
   reorderMintFields(decodedData, tokenName, tokenSymbol, metadataPda);
@@ -319,119 +319,63 @@ async function fallbackToDasOrNotFound(addr: string, rpcUrl: string): Promise<Fe
   try {
     const asset = await detectAsset(addr, rpcUrl);
     if (asset) return dasAssetResult(asset);
-  } catch { /* DAS not available */ }
+  } catch (err) { console.warn("Failed to detect asset via DAS as fallback", err); }
   return { ...NOT_FOUND_RESULT };
 }
 
 /**
- * Pure fetch + decode: fetches an account from RPC and decodes it using IDL,
- * WITHOUT dispatching any graph actions. Returns all data needed to update the graph.
+ * Pure fetch + decode for a single account. Delegates to fetchAndDecodeMany for
+ * the core fetch/decode/enrich pipeline, then applies additional enrichment that
+ * is too expensive for batch paths:
+ *
+ * - **Program self-IDL fetch**: fetches the IDL for the account itself when it's
+ *   an executable BPF program (the batch path only fetches IDLs for owner programs)
+ * - **Squads multisig detection**: reverse-lookup API call to detect Squads
+ *   association (skipped in batch to avoid N extra API calls per child node)
+ *
+ * Use this for user-initiated single-account explores. Use fetchAndDecodeMany
+ * for auto-expanded children where the extra enrichment would be too noisy/slow.
  */
 export async function fetchAndDecode(
   addr: string,
   rpcUrl: string,
   options?: ExpandOptions,
 ): Promise<FetchDecodeResult> {
-  try {
-    const account = await fetchAccount(addr, rpcUrl);
-    if (!account) {
-      return await fallbackToDasOrNotFound(addr, rpcUrl);
-    }
-
-    const owner = account.owner;
-    const lamports = account.lamports;
-
-    // Try to get IDL for the owning program
-    let idl: Idl | null = null;
-    if (hasIdl(owner)) {
-      idl = getIdl(owner) ?? null;
-    } else {
-      try {
-        idl = await fetchIdl(owner, rpcUrl);
-        if (idl) {
-          setIdl(owner, idl);
-          options?.onIdlFetched?.(owner, idl);
-        }
-      } catch {
-        // IDL fetch failed — proceed without it
-      }
-    }
-
-    const decoded = decodeAccountWithIdl(account.data, account.owner, idl);
-
-    // Enrich token accounts and mints with extra display fields
-    if (decoded.decodedData) {
-      await enrichTokenFields(decoded.decodedData, decoded.accountType, addr, rpcUrl);
-    }
-
-    // Enrich executable BPF program accounts with programdata info
-    let programInfo: ProgramInfo | undefined;
-    if (account.executable && account.owner === BPF_LOADER_UPGRADEABLE) {
-      // For program accounts, also fetch the IDL for the program itself (addr is the program ID)
-      if (!hasIdl(addr)) {
-        try {
-          const progIdl = await fetchIdl(addr, rpcUrl);
-          if (progIdl) {
-            setIdl(addr, progIdl);
-            options?.onIdlFetched?.(addr, progIdl);
-          }
-        } catch { /* IDL fetch failed */ }
-      }
-
-      try {
-        const info = await fetchProgramInfo(account, rpcUrl);
-        if (info) programInfo = info;
-      } catch { /* program info fetch failed */ }
-    }
-
-    // For program accounts, set accountType to "Program" and use programInfo fields as decoded data
-    let accountType = decoded.accountType;
-    let programName = decoded.programName;
-    if (programInfo) {
-      accountType = "Program";
-      // If there's a cached IDL for this program, use its name
-      if (hasIdl(addr)) {
-        const progIdl = getIdl(addr);
-        if (progIdl?.metadata?.name) programName = progIdl.metadata.name;
-      }
-    }
-
-    // Enrich system accounts with Squads multisig detection
-    let squadsInfo: SquadsInfo | undefined;
-    const SYSTEM_PROGRAM = "11111111111111111111111111111111";
-    if (owner === SYSTEM_PROGRAM) {
-      try {
-        const squads = await detectSquadsForSystemAccount(addr, rpcUrl);
-        if (squads) squadsInfo = squads;
-      } catch { /* squads detection failed */ }
-    }
-
-    return {
-      ...decoded,
-      accountType,
-      programName,
-      programId: owner,
-      balance: Number(lamports),
-      thumbnail: undefined,
-      error: undefined,
-      notFound: false,
-      programInfo,
-      squadsInfo,
-    };
-  } catch (err) {
-    return {
-      decodedData: null,
-      accountType: null,
-      idl: null,
-      typeDef: null,
-      programId: null,
-      programName: null,
-      balance: null,
-      thumbnail: undefined,
-      error: err instanceof Error ? err.message : "Failed to fetch account",
-      notFound: false,
-    };
+  const results = await fetchAndDecodeMany([addr], rpcUrl, options);
+  const result = results.get(addr);
+  if (!result) {
+    return { ...NOT_FOUND_RESULT };
   }
+
+  // --- Extra enrichment only done for single-account explores ---
+
+  // For executable BPF programs, fetch the IDL for the program itself (not just its owner)
+  if (result.programId && result.accountType === "Program") {
+    if (!hasIdl(addr)) {
+      try {
+        const progIdl = await fetchIdl(addr, rpcUrl);
+        if (progIdl) {
+          setIdl(addr, progIdl);
+          options?.onIdlFetched?.(addr, progIdl);
+          if (progIdl.metadata?.name) result.programName = progIdl.metadata.name;
+        }
+      } catch (err) { console.warn(`Failed to fetch IDL for program account ${addr}`, err); }
+    } else {
+      const progIdl = getIdl(addr);
+      if (progIdl?.metadata?.name) result.programName = progIdl.metadata.name;
+    }
+  }
+
+  // Detect Squads multisig association for system-owned accounts
+  const SYSTEM_PROGRAM = "11111111111111111111111111111111";
+  if (result.programId === SYSTEM_PROGRAM) {
+    try {
+      const squads = await detectSquadsForSystemAccount(addr, rpcUrl);
+      if (squads) result.squadsInfo = squads;
+    } catch (err) { console.warn("Failed to detect Squads multisig for system account", err); }
+  }
+
+  return result;
 }
 
 /**
@@ -491,20 +435,22 @@ export async function fetchAndDecodeMany(
         programIdlAddrs.set(entry.programId, existing);
       }
 
-      for (const [programId, entries] of programIdlAddrs) {
-        if (hasIdl(programId)) continue;
+      // Try each IDL account (legacy first, then metadata) — parse directly, no re-fetch
+      const parsedIdls = Array.from(programIdlAddrs)
+        .filter(([programId]) => !hasIdl(programId))
+        .map(([programId, entries]) => ({
+          programId,
+          idl: entries
+            .map((entry) => idlAccountMap.get(entry.addr))
+            .filter((acct): acct is NonNullable<typeof acct> => !!acct)
+            .map((acct) => tryParseIdlFromAccount(acct))
+            .find((idl): idl is Idl => !!idl),
+        }))
+        .filter((result): result is { programId: string; idl: Idl } => !!result.idl);
 
-        // Try each IDL account (legacy first, then metadata) — parse directly, no re-fetch
-        for (const entry of entries) {
-          const acct = idlAccountMap.get(entry.addr);
-          if (!acct) continue;
-          const idl = tryParseIdlFromAccount(acct);
-          if (idl) {
-            setIdl(programId, idl);
-            options?.onIdlFetched?.(programId, idl);
-            break;
-          }
-        }
+      for (const { programId, idl } of parsedIdls) {
+        setIdl(programId, idl);
+        options?.onIdlFetched?.(programId, idl);
       }
     }
   }
@@ -534,30 +480,37 @@ export async function fetchAndDecodeMany(
 
   // Enrich token accounts and mints with extra display fields (parallel)
   // Also enrich executable BPF program accounts with programdata info
-  const enrichPromises: Promise<void>[] = [];
-  for (const [addr, result] of results) {
-    if (result.decodedData) {
-      enrichPromises.push(enrichTokenFields(result.decodedData, result.accountType, addr, rpcUrl));
-    }
-    const account = accountMap.get(addr);
-    if (account?.executable && account.owner === BPF_LOADER_UPGRADEABLE) {
-      enrichPromises.push(
-        fetchProgramInfo(account, rpcUrl).then((info) => {
-          if (info) {
-            result.programInfo = info;
-            result.accountType = "Program";
-            if (hasIdl(addr)) {
-              const progIdl = getIdl(addr);
-              if (progIdl?.metadata?.name) result.programName = progIdl.metadata.name;
+  await Promise.all(
+    Array.from(results).flatMap(([addr, result]) => {
+      const promises: Promise<void>[] = [];
+      if (result.decodedData) {
+        promises.push(enrichTokenFields(result.decodedData, result.accountType, addr, rpcUrl));
+      }
+      const account = accountMap.get(addr);
+      if (account?.executable && account.owner === BPF_LOADER_UPGRADEABLE) {
+        promises.push(
+          (async () => {
+            try {
+              const info = await fetchProgramInfo(account, rpcUrl);
+              if (info) {
+                result.programInfo = info;
+                result.accountType = "Program";
+                if (hasIdl(addr)) {
+                  const progIdl = getIdl(addr);
+                  if (progIdl?.metadata?.name) result.programName = progIdl.metadata.name;
+                }
+              }
+            } catch (err) {
+              console.warn("Failed to fetch program info in batch path", err);
             }
-          }
-        }).catch(() => { /* program info fetch failed */ }),
-      );
-    }
-    // Squads detection skipped in batch path — only runs for single explicit explores
-    // to avoid spamming the reverse-lookup API for every payer/wallet in the graph
-  }
-  await Promise.all(enrichPromises);
+          })(),
+        );
+      }
+      // Squads detection skipped in batch path — only runs for single explicit explores
+      // to avoid spamming the reverse-lookup API for every payer/wallet in the graph
+      return promises;
+    }),
+  );
 
   return results;
 }

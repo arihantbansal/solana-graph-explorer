@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useRef } from "react";
+import { useAsyncCallback } from "react-async-hook";
 import { fetchAssets, type AssetItem } from "@/solana/fetchAssets";
 
 interface AssetsCacheEntry {
@@ -52,9 +53,8 @@ export function useAssets(address: string | undefined, rpcUrl: string) {
     getCached(address)?.items ?? [],
   );
   const [total, setTotal] = useState(getCached(address)?.total ?? 0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [appError, setAppError] = useState<string | null>(null);
 
   // Synchronous reset when address changes
   if (address !== prevAddressRef.current) {
@@ -69,90 +69,81 @@ export function useAssets(address: string | undefined, rpcUrl: string) {
     } else {
       setAssets([]);
       setTotal(0);
-      setError(null);
+      setAppError(null);
       setHasMore(false);
       pageRef.current = 1;
     }
   }
 
-  const load = useCallback(async () => {
+  const loadAction = useAsyncCallback(async () => {
     if (!address) return;
 
-    setIsLoading(true);
-    setError(null);
+    setAppError(null);
     pageRef.current = 1;
 
-    try {
-      const page = await fetchAssets(address, rpcUrl, 1);
+    const page = await fetchAssets(address, rpcUrl, 1);
 
-      if (page.error) {
-        setError(page.error);
-        setAssets([]);
-        setTotal(0);
-        setHasMore(false);
-        return;
-      }
-
-      setAssets(page.items);
-      setTotal(page.total);
-      setHasMore(page.hasMore);
-
-      if (page.items.length > 0) {
-        assetsCache.set(address, {
-          items: page.items,
-          total: page.total,
-          lastAccessed: Date.now(),
-        });
-        evictCache();
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to fetch assets");
-    } finally {
-      setIsLoading(false);
+    if (page.error) {
+      setAppError(page.error);
+      setAssets([]);
+      setTotal(0);
+      setHasMore(false);
+      return;
     }
-  }, [address, rpcUrl]);
 
-  const loadMore = useCallback(async () => {
+    setAssets(page.items);
+    setTotal(page.total);
+    setHasMore(page.hasMore);
+
+    if (page.items.length > 0) {
+      assetsCache.set(address, {
+        items: page.items,
+        total: page.total,
+        lastAccessed: Date.now(),
+      });
+      evictCache();
+    }
+  });
+
+  const loadMoreAction = useAsyncCallback(async () => {
     if (!address || !hasMore) return;
 
-    setIsLoading(true);
-    setError(null);
+    setAppError(null);
     const nextPage = pageRef.current + 1;
 
-    try {
-      const page = await fetchAssets(address, rpcUrl, nextPage);
+    const page = await fetchAssets(address, rpcUrl, nextPage);
 
-      if (page.error) {
-        setError(page.error);
-        return;
-      }
-
-      pageRef.current = nextPage;
-
-      setAssets((prev) => {
-        const existingIds = new Set(prev.map((a) => a.id));
-        const newItems = page.items.filter((a) => !existingIds.has(a.id));
-        const next = [...prev, ...newItems];
-
-        // Sync to cache
-        assetsCache.set(address, {
-          items: next,
-          total: page.total,
-          lastAccessed: Date.now(),
-        });
-        evictCache();
-
-        return next;
-      });
-
-      setTotal(page.total);
-      setHasMore(page.hasMore);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to fetch assets");
-    } finally {
-      setIsLoading(false);
+    if (page.error) {
+      setAppError(page.error);
+      return;
     }
-  }, [address, rpcUrl, hasMore]);
 
-  return { assets, total, isLoading, error, hasMore, load, loadMore };
+    pageRef.current = nextPage;
+
+    setAssets((prev) => {
+      const existingIds = new Set(prev.map((a) => a.id));
+      const newItems = page.items.filter((a) => !existingIds.has(a.id));
+      const next = [...prev, ...newItems];
+
+      // Sync to cache
+      assetsCache.set(address, {
+        items: next,
+        total: page.total,
+        lastAccessed: Date.now(),
+      });
+      evictCache();
+
+      return next;
+    });
+
+    setTotal(page.total);
+    setHasMore(page.hasMore);
+  });
+
+  const isLoading = loadAction.loading || loadMoreAction.loading;
+  const hookError = loadAction.error || loadMoreAction.error;
+  const error =
+    appError ?? (hookError ? (hookError instanceof Error ? hookError.message : "Failed to fetch assets") : null);
+
+  return { assets, total, isLoading, error, hasMore, load: loadAction.execute, loadMore: loadMoreAction.execute };
 }

@@ -77,30 +77,16 @@ export function parseSecurityTxt(elfData: Uint8Array): SecurityTxt | null {
   const magicBytes = new TextEncoder().encode(SECURITY_TXT_MAGIC);
   const endBytes = new TextEncoder().encode(SECURITY_TXT_END);
 
-  let magicIndex = -1;
-  outer:
-  for (let i = 0; i <= elfData.length - magicBytes.length; i++) {
-    for (let j = 0; j < magicBytes.length; j++) {
-      if (elfData[i + j] !== magicBytes[j]) continue outer;
-    }
-    magicIndex = i;
-    break;
-  }
+  const findMarker = (haystack: Uint8Array, needle: Uint8Array, from = 0): number =>
+    Array.from({ length: haystack.length - needle.length + 1 - from }, (_, i) => i + from)
+      .find((i) => needle.every((b, j) => haystack[i + j] === b)) ?? -1;
 
+  const magicIndex = findMarker(elfData, magicBytes);
   if (magicIndex === -1) return null;
 
   const start = magicIndex + magicBytes.length;
-
-  // Find end marker
-  let endIndex = elfData.length;
-  outer2:
-  for (let i = start; i <= elfData.length - endBytes.length; i++) {
-    for (let j = 0; j < endBytes.length; j++) {
-      if (elfData[i + j] !== endBytes[j]) continue outer2;
-    }
-    endIndex = i;
-    break;
-  }
+  const endFound = findMarker(elfData, endBytes, start);
+  const endIndex = endFound === -1 ? elfData.length : endFound;
 
   // Parse key\0value\0 pairs from the content between magic and end
   const content = elfData.slice(start, endIndex);
@@ -156,7 +142,8 @@ async function lookupSquadsMap(addr: string): Promise<SquadsMapResponse | null> 
     const data = await resp.json() as SquadsMapResponse;
     if ("error" in data) return null;
     return data;
-  } catch {
+  } catch (err) {
+    console.warn("Failed to look up Squads map API", err);
     return null;
   }
 }
@@ -172,7 +159,8 @@ function tryDecodeSquadsMultisig(data: Uint8Array): Record<string, unknown> | nu
   try {
     const typeDef = squadsV4Idl.types!.find((t) => t.name === "Multisig")!;
     return decodeAccountData(data, typeDef, squadsV4Idl);
-  } catch {
+  } catch (err) {
+    console.warn("Failed to decode Squads V4 multisig account data", err);
     return null;
   }
 }
@@ -216,7 +204,8 @@ export async function detectSquadsMultisig(
     }
 
     return { version, multisigAddress, multisigData };
-  } catch {
+  } catch (err) {
+    console.warn("Failed to detect Squads multisig", err);
     return null;
   }
 }

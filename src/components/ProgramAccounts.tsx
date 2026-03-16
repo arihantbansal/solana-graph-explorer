@@ -51,7 +51,8 @@ function decodeResults(
     try {
       const fields = decodeAccountData(r.data, typeDef, idl);
       return { pubkey: r.pubkey, fields };
-    } catch {
+    } catch (err) {
+      console.warn(`Failed to decode account data for ${r.pubkey}`, err);
       return { pubkey: r.pubkey, fields: null };
     }
   });

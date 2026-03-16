@@ -14,36 +14,24 @@ export function inferHasOneRelationships(
   typeDef: IdlTypeDef,
   _idl?: Idl
 ): HasOneRelationship[] {
-  const relationships: HasOneRelationship[] = [];
-
   if (typeDef.type.kind !== "struct" || !typeDef.type.fields) {
-    return relationships;
+    return [];
   }
 
-  for (const field of typeDef.type.fields) {
-    if (!isPubkeyType(field.type)) {
-      continue;
-    }
-
-    const value = decodedData[field.name];
-    if (typeof value !== "string") {
-      continue;
-    }
-
-    if (WELL_KNOWN_PROGRAM_IDS.has(value)) {
-      continue;
-    }
-
-    relationships.push({
+  return typeDef.type.fields
+    .filter((field) => isPubkeyType(field.type))
+    .map((field) => ({ field, value: decodedData[field.name] }))
+    .filter(
+      ({ value }) =>
+        typeof value === "string" && !WELL_KNOWN_PROGRAM_IDS.has(value),
+    )
+    .map(({ field, value }) => ({
       sourceAddress,
-      targetAddress: value,
-      type: "has_one",
+      targetAddress: value as string,
+      type: "has_one" as const,
       label: field.name,
       fieldName: field.name,
-    });
-  }
-
-  return relationships;
+    }));
 }
 
 export { ZERO_ADDRESS };

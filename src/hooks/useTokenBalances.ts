@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useRef } from "react";
+import { useAsyncCallback } from "react-async-hook";
 import {
   fetchTokenAccounts,
   type TokenAccountInfo,
@@ -50,8 +51,6 @@ export function useTokenBalances(
   const [tokens, setTokens] = useState<TokenAccountInfo[]>(
     getCached(address)?.data ?? [],
   );
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Synchronous reset when address changes
   if (address !== prevAddressRef.current) {
@@ -59,14 +58,12 @@ export function useTokenBalances(
     const entry = getCached(address);
     if (entry) {
       setTokens(entry.data);
-      setError(null);
     } else {
       setTokens([]);
-      setError(null);
     }
   }
 
-  const load = useCallback(async () => {
+  const asyncLoad = useAsyncCallback(async () => {
     if (!address) return;
 
     // Check cache first
@@ -76,28 +73,20 @@ export function useTokenBalances(
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
+    const data = await fetchTokenAccounts(address, rpcUrl);
+    setTokens(data);
 
-    try {
-      const data = await fetchTokenAccounts(address, rpcUrl);
-      setTokens(data);
+    // Save to cache
+    tokenBalanceCache.set(address, {
+      data,
+      timestamp: Date.now(),
+      lastAccessed: Date.now(),
+    });
+    evictCache();
+  });
 
-      // Save to cache
-      tokenBalanceCache.set(address, {
-        data,
-        timestamp: Date.now(),
-        lastAccessed: Date.now(),
-      });
-      evictCache();
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Failed to fetch token balances",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [address, rpcUrl]);
+  const isLoading = asyncLoad.loading;
+  const error = asyncLoad.error?.message ?? (asyncLoad.error ? "Failed to fetch token balances" : null);
 
-  return { tokens, isLoading, error, load };
+  return { tokens, isLoading, error, load: asyncLoad.execute };
 }

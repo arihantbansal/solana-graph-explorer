@@ -195,18 +195,18 @@ export function BalanceChangeHistory({
   useEffect(() => {
     if (allKnownMints.size === 0) return;
     let cancelled = false;
-    for (const mint of allKnownMints) {
-      if (!assetInfos.has(mint)) {
-        detectAsset(mint, rpcUrl).then((info) => {
-          if (cancelled) return;
-          setAssetInfos((prev) => {
-            const next = new Map(prev);
-            next.set(mint, info);
-            return next;
-          });
+    const mintsToFetch = [...allKnownMints].filter((mint) => !assetInfos.has(mint));
+    Promise.all(
+      mintsToFetch.map(async (mint) => {
+        const info = await detectAsset(mint, rpcUrl);
+        if (cancelled) return;
+        setAssetInfos((prev) => {
+          const next = new Map(prev);
+          next.set(mint, info);
+          return next;
         });
-      }
-    }
+      }),
+    );
     return () => { cancelled = true; };
   }, [allKnownMints, rpcUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 

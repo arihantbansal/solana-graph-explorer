@@ -99,7 +99,8 @@ function loadRules(): PdaRelationshipRule[] {
       localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(valid));
     }
     return valid as PdaRelationshipRule[];
-  } catch {
+  } catch (err) {
+    console.warn("Failed to load relationship rules from localStorage", err);
     return [];
   }
 }
@@ -295,7 +296,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     try {
       const raw = localStorage.getItem("solana-graph-explorer:history");
       if (raw) history = JSON.parse(raw);
-    } catch { /* ignore */ }
+    } catch (err) { console.warn("Failed to load history from localStorage during export", err); }
     return JSON.stringify({
       version: 1,
       rpcEndpointKey,
@@ -341,10 +342,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           ? importedCustomUrl
           : (RPC_OPTIONS.find((o) => o.key === importedRpcKey)?.url ?? RPC_OPTIONS[0].url);
 
-      // Re-fetch all IDLs in parallel
-      for (const program of strippedPrograms) {
-        fetchIdl(program.programId, rpcUrl)
-          .then((idl) => {
+      // Re-fetch all IDLs in parallel (fire-and-forget — don't block import)
+      Promise.all(
+        strippedPrograms.map(async (program) => {
+          try {
+            const idl = await fetchIdl(program.programId, rpcUrl);
             if (idl) {
               setIdl(program.programId, idl);
               const updatedEntry: ProgramEntry = {
@@ -361,11 +363,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
                 return next;
               });
             }
-          })
-          .catch(() => {
-            // IDL fetch failed — leave as null
-          });
-      }
+          } catch (err) {
+            console.warn(`Failed to re-fetch IDL for program ${program.programId} during import`, err);
+          }
+        }),
+      );
     }
     if (data.addressLabels && typeof data.addressLabels === "object") {
       setAddressLabelsState(data.addressLabels);

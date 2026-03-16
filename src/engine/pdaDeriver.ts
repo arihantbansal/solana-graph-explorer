@@ -16,35 +16,40 @@ export function extractPdaDefinitions(
   idl: Idl,
   programId: string,
 ): PdaDefinition[] {
-  const seen = new Map<string, PdaDefinition>();
+  // Flatten all instruction accounts that have PDA definitions
+  const pdaAccounts = idl.instructions.flatMap((instruction) =>
+    instruction.accounts
+      .filter((account): account is IdlInstructionAccountDef & { pda: NonNullable<IdlInstructionAccountDef["pda"]> } =>
+        !!(account as IdlInstructionAccountDef).pda,
+      )
+      .map((account) => ({ instruction, account })),
+  );
 
-  for (const instruction of idl.instructions) {
-    for (const account of instruction.accounts) {
-      const acct = account as IdlInstructionAccountDef;
-      if (!acct.pda) continue;
+  // Deduplicate by seed signature, merging instruction names
+  const seen = pdaAccounts.reduce((map, { instruction, account }) => {
+    const key = seedSignature(account.pda.seeds);
+    const existing = map.get(key);
 
-      const key = seedSignature(acct.pda.seeds);
-      const existing = seen.get(key);
-
-      if (existing) {
-        if (!existing.instructionNames.includes(instruction.name)) {
-          existing.instructionNames.push(instruction.name);
-        }
-      } else {
-        const pdaProgramId =
-          acct.pda.program?.kind === "const"
-            ? (acct.pda.program.value as string)
-            : programId;
-
-        seen.set(key, {
-          name: acct.name,
-          instructionNames: [instruction.name],
-          seeds: acct.pda.seeds,
-          programId: pdaProgramId,
-        });
+    if (existing) {
+      if (!existing.instructionNames.includes(instruction.name)) {
+        existing.instructionNames.push(instruction.name);
       }
+    } else {
+      const pdaProgramId =
+        account.pda.program?.kind === "const"
+          ? (account.pda.program.value as string)
+          : programId;
+
+      map.set(key, {
+        name: account.name,
+        instructionNames: [instruction.name],
+        seeds: account.pda.seeds,
+        programId: pdaProgramId,
+      });
     }
-  }
+
+    return map;
+  }, new Map<string, PdaDefinition>());
 
   return Array.from(seen.values());
 }

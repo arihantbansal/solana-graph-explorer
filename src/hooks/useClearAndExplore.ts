@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useAsyncCallback } from "react-async-hook";
 import { useReactFlow } from "@xyflow/react";
 import { useGraph } from "@/contexts/GraphContext";
 import { useSettings } from "@/contexts/SettingsContext";
@@ -19,8 +20,8 @@ export function useClearAndExplore() {
   const { state: viewState, backToGraph } = useView();
   const { fitView } = useReactFlow();
 
-  const doExplore = useCallback(
-    (address: string, opts?: { skipSelect?: boolean }) => {
+  const doExploreAction = useAsyncCallback(
+    async (address: string, opts?: { skipSelect?: boolean }) => {
       // Update URL
       const url = new URL(window.location.href);
       url.searchParams.delete("tx");
@@ -47,7 +48,7 @@ export function useClearAndExplore() {
       }
 
       const existingIds = new Set([address]);
-      expandAccount({
+      await expandAccount({
         address,
         sourcePosition: position,
         rpcUrl: rpcEndpoint,
@@ -58,25 +59,21 @@ export function useClearAndExplore() {
           collapsedAddresses: new Set(collapsedAddresses),
           depth: expansionDepth,
         },
-      }).then(() => {
-        requestAnimationFrame(() => {
-          fitView({ duration: 400, padding: 0.2, maxZoom: 1 });
-        });
+      });
+      requestAnimationFrame(() => {
+        fitView({ duration: 400, padding: 0.2, maxZoom: 1 });
       });
     },
-    [dispatch, rpcEndpoint, saveProgram, fitView, expansionDepth, collapsedAddresses],
   );
 
   return useCallback(
     (address: string, opts?: { skipSelect?: boolean }) => {
       if (viewState.mode === "transaction") {
-        // Pass the address through ViewContext so the outer graph context
-        // (which persists across mode switches) can pick it up and explore.
         backToGraph(address);
       } else {
-        doExplore(address, opts);
+        doExploreAction.execute(address, opts);
       }
     },
-    [viewState.mode, backToGraph, doExplore],
+    [viewState.mode, backToGraph, doExploreAction],
   );
 }

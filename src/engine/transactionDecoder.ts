@@ -128,8 +128,8 @@ export async function decodeTransaction(
           setIdl(pid, idl);
           idls.set(pid, idl);
         }
-      } catch {
-        // IDL fetch failed — skip
+      } catch (err) {
+        console.warn(`Failed to fetch IDL for program ${pid}`, err);
       }
     }),
   );

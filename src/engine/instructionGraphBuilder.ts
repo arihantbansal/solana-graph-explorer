@@ -98,7 +98,7 @@ function formatPdaSeeds(pda: IdlPda): string {
         try {
           const text = new TextDecoder().decode(new Uint8Array(bytes));
           if (/^[\x20-\x7E]+$/.test(text)) return `"${text}"`;
-        } catch { /* fallthrough */ }
+        } catch (err) { console.warn("Failed to decode const seed bytes as text", err); }
         return `0x${bytes.map(b => b.toString(16).padStart(2, '0')).join('')}`;
       }
       case "account": return seed.path;
@@ -174,17 +174,19 @@ export function buildInstructionGraphs(
     const accountDefs = ixInfo?.accountDefs ?? [];
 
     // Map from account address to the IDL label (only for top-level ix accounts)
-    const accountLabels = new Map<string, string>();
-    const accountSigners = new Set<string>();
-    const accountWritables = new Set<string>();
-    const accountPdaSeeds = new Map<string, string>();
-    for (let j = 0; j < ix.accounts.length; j++) {
-      const def = accountDefs[j];
-      if (def?.name) accountLabels.set(ix.accounts[j], def.name);
-      if (def?.signer) accountSigners.add(ix.accounts[j]);
-      if (def?.writable) accountWritables.add(ix.accounts[j]);
-      if (def?.pda) accountPdaSeeds.set(ix.accounts[j], formatPdaSeeds(def.pda));
-    }
+    const indexedAccounts = ix.accounts.map((addr, j) => ({ addr, def: accountDefs[j] }));
+    const accountLabels = new Map(
+      indexedAccounts.filter(({ def }) => def?.name).map(({ addr, def }) => [addr, def!.name]),
+    );
+    const accountSigners = new Set(
+      indexedAccounts.filter(({ def }) => def?.signer).map(({ addr }) => addr),
+    );
+    const accountWritables = new Set(
+      indexedAccounts.filter(({ def }) => def?.writable).map(({ addr }) => addr),
+    );
+    const accountPdaSeeds = new Map(
+      indexedAccounts.filter(({ def }) => def?.pda).map(({ addr, def }) => [addr, formatPdaSeeds(def!.pda!)]),
+    );
 
     // Process inner instructions: collect their accounts, build InnerInstruction metadata
     const innerInstructions: InnerInstruction[] = [];
@@ -271,58 +273,50 @@ export function buildInstructionGraphs(
     const clusterHeight = contentHeight;
 
     // Build instruction detail for inspect panel
-    const detailAccounts: InstructionDetail["accounts"] = [];
-    for (let j = 0; j < ix.accounts.length; j++) {
-      const addr = ix.accounts[j];
-      if (excludedAddresses.has(addr)) continue;
-      const def = accountDefs[j];
-      detailAccounts.push({
+    const detailAccounts: InstructionDetail["accounts"] = ix.accounts
+      .map((addr, j) => ({ addr, j, def: accountDefs[j] }))
+      .filter(({ addr }) => !excludedAddresses.has(addr))
+      .map(({ addr, j, def }) => ({
         index: j,
         name: def?.name ?? `Account ${j}`,
         address: addr,
         isSigner: accountSigners.has(addr),
         isWritable: accountWritables.has(addr),
         pdaSeeds: accountPdaSeeds.get(addr),
-      });
-    }
+      }));
 
     // Build inner instruction details for the inspect panel
-    const innerDetailList: InstructionDetail["innerInstructions"] = [];
-    if (innerSet) {
-      for (const innerIx of innerSet.instructions) {
-        if (innerIx.programId === COMPUTE_BUDGET_PROGRAM) continue;
+    const innerDetailList: InstructionDetail["innerInstructions"] = (innerSet?.instructions ?? [])
+      .filter((innerIx) => innerIx.programId !== COMPUTE_BUDGET_PROGRAM)
+      .map((innerIx) => {
         const innerIdl = idls.get(innerIx.programId);
         const innerIxInfo = findIdlInstruction(innerIx, innerIdl);
         const innerIxName = innerIx.decoded?.instructionName ?? innerIxInfo?.name ?? "Unknown";
         const innerProgramName = innerIx.decoded?.programName ?? getProgramDisplayName(innerIx.programId, innerIdl);
         const innerAccountDefs = innerIxInfo?.accountDefs ?? [];
 
-        const innerDetailAccounts: InstructionDetail["accounts"] = [];
-        for (let j = 0; j < innerIx.accounts.length; j++) {
-          const addr = innerIx.accounts[j];
-          if (excludedAddresses.has(addr)) continue;
-          const def = innerAccountDefs[j];
-          innerDetailAccounts.push({
+        const innerDetailAccounts: InstructionDetail["accounts"] = innerIx.accounts
+          .map((addr, j) => ({ addr, j, def: innerAccountDefs[j] }))
+          .filter(({ addr }) => !excludedAddresses.has(addr))
+          .map(({ addr, j, def }) => ({
             index: j,
             name: def?.name ?? `Account ${j}`,
             address: addr,
             isSigner: def?.signer ?? false,
             isWritable: def?.writable ?? false,
             pdaSeeds: def?.pda ? formatPdaSeeds(def.pda) : undefined,
-          });
-        }
+          }));
 
         const innerHasArgs = innerIx.decoded?.args && Object.keys(innerIx.decoded.args).length > 0;
-        innerDetailList.push({
+        return {
           programId: innerIx.programId,
           programName: innerProgramName,
           instructionName: innerIxName,
           accounts: innerDetailAccounts,
           args: innerHasArgs ? innerIx.decoded!.args : undefined,
           rawData: innerIx.data,
-        });
-      }
-    }
+        };
+      });
 
     const instructionDetail: InstructionDetail = {
       instructionIndex: ixDisplayIndex,
@@ -385,92 +379,98 @@ export function buildInstructionGraphs(
     }
 
     // Collect all (address, def) pairs from top-level + inner instructions for edge creation
-    const allAccountDefs: Array<{ addr: string; def: IdlInstructionAccountDef }> = [];
-    for (let j = 0; j < ix.accounts.length && j < accountDefs.length; j++) {
-      if (accountDefs[j]) allAccountDefs.push({ addr: ix.accounts[j], def: accountDefs[j] });
-    }
-    if (innerSet) {
-      for (const innerIx of innerSet.instructions) {
-        if (innerIx.programId === COMPUTE_BUDGET_PROGRAM) continue;
+    const topLevelDefs = ix.accounts
+      .slice(0, accountDefs.length)
+      .map((addr, j) => ({ addr, def: accountDefs[j] }))
+      .filter(({ def }) => !!def);
+
+    const innerDefs = (innerSet?.instructions ?? [])
+      .filter((innerIx) => innerIx.programId !== COMPUTE_BUDGET_PROGRAM)
+      .flatMap((innerIx) => {
         const innerIdl = idls.get(innerIx.programId);
         const innerIxInfo = findIdlInstruction(innerIx, innerIdl);
         const innerAccountDefs = innerIxInfo?.accountDefs ?? [];
-        for (let j = 0; j < innerIx.accounts.length && j < innerAccountDefs.length; j++) {
-          if (innerAccountDefs[j]) allAccountDefs.push({ addr: innerIx.accounts[j], def: innerAccountDefs[j] });
-        }
-      }
-    }
+        return innerIx.accounts
+          .slice(0, innerAccountDefs.length)
+          .map((addr, j) => ({ addr, def: innerAccountDefs[j] }))
+          .filter(({ def }) => !!def);
+      });
+
+    const allAccountDefs = [...topLevelDefs, ...innerDefs];
 
     // Build unified name→address map for relation/PDA lookups
-    const nameToAddr = new Map<string, string>();
-    for (const { addr, def } of allAccountDefs) {
-      if (def.name && !nameToAddr.has(def.name)) {
-        nameToAddr.set(def.name, addr);
-      }
-    }
+    const nameToAddr = allAccountDefs
+      .filter(({ def }) => def.name)
+      .reduce((map, { addr, def }) => {
+        if (!map.has(def.name)) map.set(def.name, addr);
+        return map;
+      }, new Map<string, string>());
+
+    // Resolve a relation name against the nameToAddr map (supports dotted suffix matching)
+    const resolveRelName = (relName: string): string | undefined =>
+      nameToAddr.get(relName) ??
+      Array.from(nameToAddr).find(([name]) => name.endsWith(`.${relName}`))?.[1];
 
     // Create edges from IDL relations (has_one etc.) — top-level + inner instructions
-    const relEdgeIds = new Set<string>();
-    for (const { addr, def } of allAccountDefs) {
-      if (!def.relations) continue;
-      if (excludedAddresses.has(addr)) continue;
-      const sourceNodeId = `${clusterId}-${addr}`;
-      for (const relName of def.relations) {
-        let targetAddr = nameToAddr.get(relName);
-        if (!targetAddr) {
-          for (const [name, a] of nameToAddr) {
-            if (name.endsWith(`.${relName}`)) { targetAddr = a; break; }
-          }
-        }
-        if (!targetAddr || excludedAddresses.has(targetAddr) || targetAddr === addr) continue;
-        const targetNodeId = `${clusterId}-${targetAddr}`;
-        const edgeId = `${sourceNodeId}-rel-${targetNodeId}`;
-        if (relEdgeIds.has(edgeId)) continue;
-        relEdgeIds.add(edgeId);
-        clusterEdges.push({
-          id: edgeId,
-          source: sourceNodeId,
-          target: targetNodeId,
-          label: "has one",
-          style: { stroke: "#6b7280", strokeWidth: 2 },
-          data: { label: "has one", relationshipType: "has_one" },
-        });
-      }
-    }
+    const relEdges = allAccountDefs
+      .filter(({ addr, def }) => def.relations && !excludedAddresses.has(addr))
+      .flatMap(({ addr, def }) => {
+        const sourceNodeId = `${clusterId}-${addr}`;
+        return def.relations!
+          .map((relName) => ({ relName, targetAddr: resolveRelName(relName) }))
+          .filter(({ targetAddr }) => !!targetAddr && !excludedAddresses.has(targetAddr!) && targetAddr !== addr)
+          .map(({ targetAddr }) => {
+            const targetNodeId = `${clusterId}-${targetAddr}`;
+            return {
+              id: `${sourceNodeId}-rel-${targetNodeId}`,
+              source: sourceNodeId,
+              target: targetNodeId,
+              label: "has one",
+              style: { stroke: "#6b7280", strokeWidth: 2 },
+              data: { label: "has one", relationshipType: "has_one" },
+            };
+          });
+      })
+      .filter((() => {
+        const seen = new Set<string>();
+        return (edge: { id: string }) => {
+          if (seen.has(edge.id)) return false;
+          seen.add(edge.id);
+          return true;
+        };
+      })());
+    clusterEdges.push(...relEdges);
 
     // Create edges for PDA account seeds (account A's PDA uses account B as a seed)
-    const pdaEdgeIds = new Set<string>();
-    for (const { addr, def } of allAccountDefs) {
-      if (!def.pda) continue;
-      if (excludedAddresses.has(addr)) continue;
-      const sourceNodeId = `${clusterId}-${addr}`;
-
-      for (const seed of def.pda.seeds) {
-        if (seed.kind !== "account") continue;
-        let targetAddr = nameToAddr.get(seed.path);
-        if (!targetAddr) {
-          for (const [name, a] of nameToAddr) {
-            if (name.endsWith(`.${seed.path}`) || name === seed.path) {
-              targetAddr = a;
-              break;
-            }
-          }
-        }
-        if (!targetAddr || excludedAddresses.has(targetAddr) || targetAddr === addr) continue;
-        const targetNodeId = `${clusterId}-${targetAddr}`;
-        const edgeKey = `${sourceNodeId}-pda-${targetNodeId}`;
-        if (pdaEdgeIds.has(edgeKey)) continue;
-        pdaEdgeIds.add(edgeKey);
-        clusterEdges.push({
-          id: edgeKey,
-          source: targetNodeId,
-          target: sourceNodeId,
-          label: "pda seed",
-          style: { stroke: "#8b5cf6", strokeWidth: 2, strokeDasharray: "5 5" },
-          data: { label: "pda seed", relationshipType: "pda_seed" },
-        });
-      }
-    }
+    const pdaEdges = allAccountDefs
+      .filter(({ addr, def }) => def.pda && !excludedAddresses.has(addr))
+      .flatMap(({ addr, def }) => {
+        const sourceNodeId = `${clusterId}-${addr}`;
+        return def.pda!.seeds
+          .filter((seed) => seed.kind === "account")
+          .map((seed) => ({ seed, targetAddr: resolveRelName(seed.path) }))
+          .filter(({ targetAddr }) => !!targetAddr && !excludedAddresses.has(targetAddr!) && targetAddr !== addr)
+          .map(({ targetAddr }) => {
+            const targetNodeId = `${clusterId}-${targetAddr}`;
+            return {
+              id: `${sourceNodeId}-pda-${targetNodeId}`,
+              source: targetNodeId,
+              target: sourceNodeId,
+              label: "pda seed",
+              style: { stroke: "#8b5cf6", strokeWidth: 2, strokeDasharray: "5 5" },
+              data: { label: "pda seed", relationshipType: "pda_seed" },
+            };
+          });
+      })
+      .filter((() => {
+        const seen = new Set<string>();
+        return (edge: { id: string }) => {
+          if (seen.has(edge.id)) return false;
+          seen.add(edge.id);
+          return true;
+        };
+      })());
+    clusterEdges.push(...pdaEdges);
 
     // Create args node at top of cluster if there are decoded args
     if (hasArgs && ix.decoded?.args) {

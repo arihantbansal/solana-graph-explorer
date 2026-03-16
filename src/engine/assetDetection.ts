@@ -98,8 +98,8 @@ async function _fetchAsset(
     }
 
     return parseAssetResponse(json.result);
-  } catch {
-    // DAS API unavailable — graceful fallback
+  } catch (err) {
+    console.warn("DAS API request failed for asset detection", err);
     return null;
   }
 }

@@ -78,8 +78,8 @@ export async function fetchAssets(
     const hasMore = currentPage * limit < total;
 
     return { items, total, hasMore, page: currentPage };
-  } catch {
-    // DAS API unavailable — graceful fallback
+  } catch (err) {
+    console.warn("DAS API request failed for getAssetsByOwner", err);
     return {
       items: [],
       total: 0,

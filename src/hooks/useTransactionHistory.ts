@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useMemo } from "react";
+import { useAsyncCallback } from "react-async-hook";
 import type { ParsedTransaction, TransactionFilter } from "@/types/transaction";
 import { fetchTransactions, isHeliusEndpoint } from "@/solana/fetchTransactions";
 
@@ -53,8 +54,6 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
   const [transactions, setTransactions] = useState<ParsedTransaction[]>(
     getCached(address, options)?.transactions ?? [],
   );
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(getCached(address, options)?.hasMore ?? false);
   const [filter, setFilter] = useState<TransactionFilter>(
     getCached(address, options)?.filter ?? { statusFilter: "all" },
@@ -82,7 +81,6 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
       entry.lastAccessed = Date.now();
     } else {
       setTransactions([]);
-      setError(null);
       setHasMore(false);
       oldestSigRef.current = undefined;
       setScrollTop(0);
@@ -121,50 +119,40 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
     [cacheKey],
   );
 
-  const loadTransactions = useCallback(
+  const loadTransactionsAction = useAsyncCallback(
     async (before?: string) => {
       if (!address) return;
 
-      setIsLoading(true);
-      setError(null);
+      const page = await fetchTransactions(address, rpcUrl, {
+        before,
+        limit: fetchSize,
+        sortOrder: sortOrderRef.current,
+        tokenAccounts: options?.tokenAccounts,
+      });
 
-      try {
-        const page = await fetchTransactions(address, rpcUrl, {
-          before,
-          limit: fetchSize,
-          sortOrder: sortOrderRef.current,
-          tokenAccounts: options?.tokenAccounts,
-        });
+      setTransactions((prev) => {
+        const next = before
+          ? (() => {
+              const existingSigs = new Set(prev.map((t) => t.signature));
+              const newTxs = page.transactions.filter((t) => !existingSigs.has(t.signature));
+              return [...prev, ...newTxs];
+            })()
+          : page.transactions;
 
-        setTransactions((prev) => {
-          const next = before
-            ? (() => {
-                const existingSigs = new Set(prev.map((t) => t.signature));
-                const newTxs = page.transactions.filter((t) => !existingSigs.has(t.signature));
-                return [...prev, ...newTxs];
-              })()
-            : page.transactions;
+        syncToCache(next, page.hasMore, filter, scrollTop);
+        return next;
+      });
 
-          syncToCache(next, page.hasMore, filter, scrollTop);
-          return next;
-        });
-
-        setHasMore(page.hasMore);
-        oldestSigRef.current = page.oldestSignature;
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to fetch transactions");
-      } finally {
-        setIsLoading(false);
-      }
+      setHasMore(page.hasMore);
+      oldestSigRef.current = page.oldestSignature;
     },
-    [address, rpcUrl, syncToCache, filter, scrollTop, fetchSize],
   );
 
   const loadMore = useCallback(() => {
     if (oldestSigRef.current) {
-      loadTransactions(oldestSigRef.current);
+      loadTransactionsAction.execute(oldestSigRef.current);
     }
-  }, [loadTransactions]);
+  }, [loadTransactionsAction]);
 
   // Client-side filtering
   const filteredTransactions = useMemo(() => {
@@ -200,18 +188,18 @@ export function useTransactionHistory(address: string | undefined, rpcUrl: strin
     setHasMore(false);
     oldestSigRef.current = undefined;
     if (cacheKey) txHistoryCache.delete(cacheKey);
-    loadTransactions();
-  }, [sortOrder, cacheKey, loadTransactions]);
+    loadTransactionsAction.execute();
+  }, [sortOrder, cacheKey, loadTransactionsAction]);
 
   return {
     allTransactions: filteredTransactions,
-    isLoading,
-    error,
+    isLoading: loadTransactionsAction.loading,
+    error: loadTransactionsAction.error ? (loadTransactionsAction.error instanceof Error ? loadTransactionsAction.error.message : "Failed to fetch transactions") : null,
     filter,
     setFilter,
     hasMore,
     loadMore,
-    loadInitial: () => loadTransactions(),
+    loadInitial: () => loadTransactionsAction.execute(),
     isHelius: isHeliusEndpoint(),
     scrollTop,
     saveScrollTop,

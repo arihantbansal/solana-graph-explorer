@@ -193,13 +193,13 @@ function FavoriteSearchCard({
     return pda as string;
   });
 
-  const handleDeriveAndExplore = useCallback(async () => {
+  const handleDeriveAndExploreAction = useAsyncCallback(async () => {
     const result = await asyncAction.execute();
     if (!result) return;
 
     clearAndExplore(result);
     onClose();
-  }, [clearAndExplore, onClose, asyncAction]);
+  });
 
   return (
     <div className="p-3 space-y-2">
@@ -255,7 +255,7 @@ function FavoriteSearchCard({
       <Button
         size="sm"
         className="w-full h-7 text-xs"
-        onClick={handleDeriveAndExplore}
+        onClick={handleDeriveAndExploreAction.execute}
         disabled={asyncAction.loading}
       >
         {asyncAction.loading ? (
@@ -552,11 +552,11 @@ function PdaSearchDialog({
 
   const derivedAddress = deriveAction.result;
 
-  const handleDerive = useCallback(async () => {
+  const handleDeriveAction = useAsyncCallback(async () => {
     await deriveAction.execute({ effectiveProgramId, currentSeeds, isCustomPda });
-  }, [effectiveProgramId, currentSeeds, isCustomPda, deriveAction]);
+  });
 
-  const handleExplore = useCallback(async () => {
+  const handleExplore = useCallback(() => {
     if (!derivedAddress) return;
     clearAndExplore(derivedAddress);
     onOpenChange(false);
@@ -958,7 +958,7 @@ function PdaSearchDialog({
             <>
               <div className="flex gap-2">
                 <Button
-                  onClick={handleDerive}
+                  onClick={handleDeriveAction.execute}
                   disabled={deriveAction.loading}
                   size="sm"
                   variant="outline"
