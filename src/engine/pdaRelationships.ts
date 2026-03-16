@@ -1,5 +1,5 @@
 import type { PdaSeedRelationship } from "@/types/relationships";
-import type { Idl } from "@/types/idl";
+import type { Idl, IdlSeed } from "@/types/idl";
 
 /**
  * Convert a PascalCase or camelCase type name to snake_case for matching
@@ -11,6 +11,12 @@ function toSnakeCase(name: string): string {
     .replace(/([A-Z])/g, "_$1")
     .toLowerCase()
     .replace(/^_/, "");
+}
+
+type AccountSeed = Extract<IdlSeed, { kind: "account" }>;
+
+function isAccountSeed(seed: IdlSeed): seed is AccountSeed {
+  return seed.kind === "account";
 }
 
 /**
@@ -29,7 +35,6 @@ export function inferPdaRelationships(
   idl: Idl,
   sourceAccountType?: string,
 ): PdaSeedRelationship[] {
-  const relationships: PdaSeedRelationship[] = [];
   const seen = new Set<string>();
 
   const sourceSnake = sourceAccountType ? toSnakeCase(sourceAccountType) : undefined;
@@ -56,13 +61,15 @@ export function inferPdaRelationships(
 
     return seeds
       .map((seed, seedIndex) => ({ seed, seedIndex }))
-      .filter(({ seed }) => seed.kind === "account")
+      .filter((entry): entry is { seed: AccountSeed; seedIndex: number } =>
+        isAccountSeed(entry.seed),
+      )
       .map(({ seed, seedIndex }) => {
         const value = resolvePath(decodedData, seed.path);
         return { seed, seedIndex, value };
       })
-      .filter(({ value }): value is { seed: typeof seeds[0]; seedIndex: number; value: string } =>
-        typeof value === "string" && !!value,
+      .filter((entry): entry is { seed: AccountSeed; seedIndex: number; value: string } =>
+        typeof entry.value === "string" && !!entry.value,
       )
       .filter(({ value, seedIndex }) => {
         const dedupKey = `${sourceAddress}:${value}:pda_seed:${instruction.name}:${seedIndex}`;

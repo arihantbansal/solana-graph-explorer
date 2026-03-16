@@ -8,7 +8,7 @@ import { getIdl, setIdl, hasIdl } from "@/solana/idlCache";
 import { identifyAccountType, decodeAccountData, decodeStructData } from "./accountDecoder";
 import { identifyBuiltinAccount, splTokenIdl, trimNullPaddedStrings, METAPLEX_METADATA_PROGRAM_ID } from "@/solana/builtinIdls";
 import { getProgramDerivedAddress, getAddressEncoder, address as toAddress } from "@solana/kit";
-import { fetchProgramInfo, BPF_LOADER_UPGRADEABLE, type ProgramInfo, type SquadsInfo, SQUADS_V3, SQUADS_V4, detectSquadsForSystemAccount } from "./programAccountParser";
+import { fetchProgramInfo, BPF_LOADER_UPGRADEABLE, type ProgramInfo, SQUADS_V3, SQUADS_V4, detectSquadsForSystemAccount } from "./programAccountParser";
 import { inferAllRelationships } from "./relationshipEngine";
 import { buildExpansionGraph } from "./graphBuilder";
 import { detectAsset } from "./assetDetection";
