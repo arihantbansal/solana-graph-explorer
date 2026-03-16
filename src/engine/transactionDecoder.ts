@@ -8,6 +8,7 @@ import type { Idl } from "@/types/idl";
 import { getIdl } from "@/solana/idlCache";
 import { fetchIdl } from "@/solana/fetchIdl";
 import { setIdl } from "@/solana/idlCache";
+import { getBuiltinIdl } from "@/solana/builtinIdls";
 import { decodeInstruction } from "@/engine/instructionDecoder";
 
 /**
@@ -120,6 +121,12 @@ export async function decodeTransaction(
       const cached = getIdl(pid);
       if (cached) {
         idls.set(pid, cached);
+        return;
+      }
+      // Check built-in IDLs (native programs, SPL Token, etc.)
+      const builtin = getBuiltinIdl(pid);
+      if (builtin) {
+        idls.set(pid, builtin);
         return;
       }
       try {

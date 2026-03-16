@@ -24,20 +24,30 @@ export function decodeInstruction(
     return null;
   }
 
-  // Need at least 8 bytes for the discriminator
-  if (dataBytes.length < 8) return null;
-
+  // Find instruction with matching discriminator (any length, including 0 for memo)
   const matched = idl.instructions.find(
     (ix) =>
-      ix.discriminator?.length === 8 &&
+      ix.discriminator &&
+      ix.discriminator.length >= 0 &&
+      dataBytes.length >= ix.discriminator.length &&
       ix.discriminator.every((b, i) => b === dataBytes[i]),
   );
 
   if (!matched) return null;
 
+  // Special case: empty discriminator means entire data is a UTF-8 memo string
+  if (matched.discriminator.length === 0) {
+    const memo = new TextDecoder().decode(dataBytes);
+    return {
+      instructionName: matched.name,
+      args: { memo },
+      programName: idl.metadata?.name,
+    };
+  }
+
   try {
     const reader = new BorshReader(dataBytes);
-    reader.offset = 8; // skip discriminator
+    reader.offset = matched.discriminator.length; // skip discriminator
     const args = matched.args.length > 0 ? decodeFields(reader, matched.args, idl) : {};
     return {
       instructionName: matched.name,

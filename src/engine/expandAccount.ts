@@ -443,7 +443,7 @@ export async function fetchAndDecodeMany(
           idl: entries
             .map((entry) => idlAccountMap.get(entry.addr))
             .filter((acct): acct is NonNullable<typeof acct> => !!acct)
-            .map((acct) => tryParseIdlFromAccount(acct))
+            .map((acct) => tryParseIdlFromAccount(acct, programId))
             .find((idl): idl is Idl => !!idl),
         }))
         .filter((result): result is { programId: string; idl: Idl } => !!result.idl);

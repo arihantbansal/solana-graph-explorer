@@ -101,9 +101,19 @@ export function SearchBar() {
     },
   });
 
-  const { openTransaction } = useView();
+  const { state: viewState, openTransaction } = useView();
   const clearAndExplore = useClearAndExplore();
   const hasAutoExplored = useRef(false);
+
+  // Sync search bar with URL when returning from transaction view
+  useEffect(() => {
+    if (viewState.mode === "graph") {
+      const address = new URLSearchParams(window.location.search).get("address");
+      if (address) {
+        form.setValue("address", address);
+      }
+    }
+  }, [viewState.mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addressError = form.formState.errors.address?.message;
 
