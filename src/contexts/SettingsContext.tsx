@@ -3,8 +3,10 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import type { PdaRelationshipRule } from "@/types/relationships";
@@ -76,7 +78,7 @@ interface SettingsContextValue {
   removeCollapsedAddress: (address: string) => void;
   isCollapsedAddress: (address: string) => boolean;
   expansionDepth: number;
-  setExpansionDepth: (depth: number) => void;
+  setExpansionDepth: (depth: SetStateAction<number>) => void;
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
   exportSettings: () => string;
@@ -281,8 +283,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [collapsedAddresses],
   );
 
-  const setExpansionDepth = useCallback((depth: number) => {
-    setExpansionDepthState(Math.max(1, Math.min(5, depth)));
+  const setExpansionDepth = useCallback((depthOrUpdater: SetStateAction<number>) => {
+    setExpansionDepthState((prev) => {
+      const next = typeof depthOrUpdater === "function" ? depthOrUpdater(prev) : depthOrUpdater;
+      return Math.max(1, Math.min(5, next));
+    });
   }, [setExpansionDepthState]);
 
   const exportSettings = useCallback(() => {
@@ -394,43 +399,32 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, [rpcEndpointKey, customRpcUrl]);
 
+  const value = useMemo<SettingsContextValue>(() => ({
+    rpcEndpoint, rpcEndpointKey, setRpcEndpointKey, customRpcUrl, setCustomRpcUrl,
+    relationshipRules, addRelationshipRule, removeRelationshipRule,
+    savedPrograms, saveProgram, removeProgram, refreshProgram,
+    addressLabels, setAddressLabel, removeAddressLabel, getLabel,
+    bytesEncodings, setBytesEncoding, getBytesEncoding,
+    savedPdaSearches, addPdaSearch, removePdaSearch,
+    collapsedAddresses, addCollapsedAddress, removeCollapsedAddress, isCollapsedAddress,
+    expansionDepth, setExpansionDepth,
+    darkMode, setDarkMode,
+    exportSettings, importSettings,
+  }), [
+    rpcEndpoint, rpcEndpointKey, setRpcEndpointKey, customRpcUrl, setCustomRpcUrl,
+    relationshipRules, addRelationshipRule, removeRelationshipRule,
+    savedPrograms, saveProgram, removeProgram, refreshProgram,
+    addressLabels, setAddressLabel, removeAddressLabel, getLabel,
+    bytesEncodings, setBytesEncoding, getBytesEncoding,
+    savedPdaSearches, addPdaSearch, removePdaSearch,
+    collapsedAddresses, addCollapsedAddress, removeCollapsedAddress, isCollapsedAddress,
+    expansionDepth, setExpansionDepth,
+    darkMode, setDarkMode,
+    exportSettings, importSettings,
+  ]);
+
   return (
-    <SettingsContext.Provider
-      value={{
-        rpcEndpoint,
-        rpcEndpointKey,
-        setRpcEndpointKey,
-        customRpcUrl,
-        setCustomRpcUrl,
-        relationshipRules,
-        addRelationshipRule,
-        removeRelationshipRule,
-        savedPrograms,
-        saveProgram,
-        removeProgram,
-        refreshProgram,
-        addressLabels,
-        setAddressLabel,
-        removeAddressLabel,
-        getLabel,
-        bytesEncodings,
-        setBytesEncoding,
-        getBytesEncoding,
-        savedPdaSearches,
-        addPdaSearch,
-        removePdaSearch,
-        collapsedAddresses,
-        addCollapsedAddress,
-        removeCollapsedAddress,
-        isCollapsedAddress,
-        expansionDepth,
-        setExpansionDepth,
-        darkMode,
-        setDarkMode,
-        exportSettings,
-        importSettings,
-      }}
-    >
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   );

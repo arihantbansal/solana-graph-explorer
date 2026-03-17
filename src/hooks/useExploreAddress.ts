@@ -52,7 +52,7 @@ export interface ExploreOptions {
  * If the address is already on the graph, it selects that node instead.
  */
 export function useExploreAddress() {
-  const { state, dispatch } = useGraph();
+  const { state, dispatch, nodeIds } = useGraph();
   const { rpcEndpoint, saveProgram, collapsedAddresses } = useSettings();
 
   return useCallback(
@@ -132,7 +132,7 @@ export function useExploreAddress() {
 
       if (!options?.skipSelect) dispatch({ type: "SELECT_NODE", nodeId: address });
 
-      const existingIds = new Set(state.nodes.map((n) => n.id));
+      const existingIds = new Set(nodeIds);
       existingIds.add(address);
       expandAccount({
         address,
@@ -147,6 +147,6 @@ export function useExploreAddress() {
         },
       });
     },
-    [state.nodes, state.edges, dispatch, rpcEndpoint, saveProgram, collapsedAddresses],
+    [state.nodes, state.edges, nodeIds, dispatch, rpcEndpoint, saveProgram, collapsedAddresses],
   );
 }

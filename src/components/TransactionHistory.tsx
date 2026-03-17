@@ -13,7 +13,7 @@ import { HistoryControls } from "@/components/HistoryControls";
 import { useTransactionHistory } from "@/hooks/useTransactionHistory";
 import type { TransactionFilter } from "@/types/transaction";
 import { History, Loader2 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { shortenAddress, formatRelativeTime, formatAbsoluteTime } from "@/utils/format";
 
 interface TransactionHistoryProps {
@@ -61,9 +61,12 @@ export function TransactionHistory({
     return names;
   }, [allTransactions]);
 
-  const updateFilter = (partial: Partial<TransactionFilter>) => {
-    setFilter((prev) => ({ ...prev, ...partial }));
-  };
+  const updateFilter = useCallback(
+    (partial: Partial<TransactionFilter>) => {
+      setFilter((prev) => ({ ...prev, ...partial }));
+    },
+    [],
+  );
 
   return (
     <div>
