@@ -94,5 +94,5 @@ export function useRelationshipRules() {
         })();
       }
     }
-  }, [state.nodes, state.edges, relationshipRules, dispatch, exploreAddress, rpcEndpoint]);
+  }, [state.nodes, relationshipRules, dispatch, exploreAddress, rpcEndpoint]);
 }

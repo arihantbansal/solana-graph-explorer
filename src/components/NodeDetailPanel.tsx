@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -153,7 +153,7 @@ const PROGRAM_TABS: { key: TabKey; label: string }[] = [
 ];
 
 export function NodeDetailPanel() {
-  const { state, dispatch, selectedNode, getNodeEdges } = useGraph();
+  const { state, dispatch, selectedNode, getNodeEdges, nodeIds } = useGraph();
   const { rpcEndpoint, savedPrograms, saveProgram, collapsedAddresses, getBytesEncoding, setBytesEncoding, isCollapsedAddress, addCollapsedAddress, removeCollapsedAddress, getLabel } = useSettings();
   const exploreAddress = useExploreAddress();
   const { state: viewState, openTransaction } = useView();
@@ -219,8 +219,6 @@ export function NodeDetailPanel() {
 
   const edges = selectedNode ? getNodeEdges(selectedNode.id) : [];
 
-  const existingNodeIds = new Set(state.nodes.map((n) => n.id));
-
   // Compute dynamic tabs — programs get Transactions + Accounts + IDL; others get base tabs
   const tabs = (() => {
     const isProgram = !!selectedNode?.data.programInfo;
@@ -255,21 +253,24 @@ export function NodeDetailPanel() {
     };
   }, []);
 
-  if (!isOpen || !selectedNode) return null;
-
   // Extract metadata URI from decoded data (Metaplex metadata accounts, DAS assets)
-  const metadataUri = selectedNode.data.decodedData?.uri;
+  const metadataUri = selectedNode?.data.decodedData?.uri;
   const hasMetadataUri = typeof metadataUri === "string" && metadataUri.startsWith("http");
 
   // Filter decoded fields: hide pubkey values already on the graph, hide uri (rendered by MetadataFetcher)
-  const decodedEntries = selectedNode.data.decodedData
-    ? Object.entries(selectedNode.data.decodedData).filter(
-        ([key, value]) => {
-          if (key === "uri" && hasMetadataUri) return false;
-          return !isPubkey(value) || !existingNodeIds.has(value);
-        },
-      )
-    : [];
+  const decodedEntries = useMemo(
+    () => selectedNode?.data.decodedData
+      ? Object.entries(selectedNode.data.decodedData).filter(
+          ([key, value]) => {
+            if (key === "uri" && hasMetadataUri) return false;
+            return !isPubkey(value) || !nodeIds.has(value);
+          },
+        )
+      : [],
+    [selectedNode?.data.decodedData, nodeIds, hasMetadataUri],
+  );
+
+  if (!isOpen || !selectedNode) return null;
 
   const content = (
     <>
@@ -650,18 +651,14 @@ export function NodeDetailPanel() {
             <TransactionHistory
               address={selectedNode.data.address}
               rpcUrl={rpcEndpoint}
-              onTransactionClick={(sig) => {
-                openTransaction(sig);
-              }}
+              onTransactionClick={openTransaction}
             />
           )}
           {activeTab === "balanceChanges" && (
             <BalanceChangeHistory
               address={selectedNode.data.address}
               rpcUrl={rpcEndpoint}
-              onTransactionClick={(sig) => {
-                openTransaction(sig);
-              }}
+              onTransactionClick={openTransaction}
             />
           )}
           {activeTab === "tokens" && (
