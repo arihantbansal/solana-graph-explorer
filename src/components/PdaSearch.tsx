@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useAsyncCallback } from "react-async-hook";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -418,14 +418,14 @@ function PdaSearchDialog({
     return pda as string;
   });
 
-  // Reset all state when dialog closes
-  useEffect(() => {
-    if (!open) {
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    if (!nextOpen) {
       form.reset();
       setLoadedSeeds([]);
       deriveAction.reset();
     }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+    onOpenChange(nextOpen);
+  }, [form, onOpenChange, deriveAction]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedProgram = savedPrograms.find(
     (p) => p.programId === selectedProgramId,
@@ -629,7 +629,7 @@ function PdaSearchDialog({
   const showSeedForm = isCustomPda || currentSeeds.length > 0;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Search by PDA</DialogTitle>

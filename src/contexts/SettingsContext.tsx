@@ -2,7 +2,6 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useState,
   type ReactNode,
 } from "react";
@@ -154,10 +153,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [expansionDepth, setExpansionDepthState] = usePersistedState<number>(EXPANSION_DEPTH_KEY, DEFAULT_EXPANSION_DEPTH);
   const [darkMode, setDarkModeState] = usePersistedState<boolean>(DARK_MODE_KEY, window.matchMedia("(prefers-color-scheme: dark)").matches);
 
-  // Sync .dark class on <html> element
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", darkMode);
-  }, [darkMode]);
+  // Sync .dark class on <html> element (also set on initial render)
+  document.documentElement.classList.toggle("dark", darkMode);
 
   const setDarkMode = useCallback((dark: boolean) => {
     setDarkModeState(dark);

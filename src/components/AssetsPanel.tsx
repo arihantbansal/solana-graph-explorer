@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo } from "react";
+import { useAsync } from "react-async-hook";
 import { useAssets } from "@/hooks/useAssets";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/CopyButton";
@@ -20,19 +21,8 @@ export function AssetsPanel({ address, rpcUrl, onAssetClick }: AssetsPanelProps)
   const [filter, setFilter] = useState<FilterMode>("all");
   const [search, setSearch] = useState("");
 
-  const loadedRef = useRef(false);
-
-  // Auto-fetch on mount (tab selected)
-  useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-    load();
-  }, [load]);
-
-  // Reset loadedRef when address changes
-  useEffect(() => {
-    loadedRef.current = false;
-  }, [address]);
+  // Auto-fetch on mount and when address changes (load() uses internal cache)
+  useAsync(load, [address]);
 
   const filtered = useMemo(() => {
     let items = assets;

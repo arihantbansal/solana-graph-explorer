@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   Select,
   SelectContent,
@@ -29,16 +29,8 @@ export function BytesFieldDisplay({
   onEncodingChange,
 }: BytesFieldDisplayProps) {
   const guessed = useMemo(() => guessEncoding(bytes), [bytes]);
-  const [encoding, setEncoding] = useState<BytesDisplayEncoding>(
-    defaultEncoding ?? guessed,
-  );
-
-  // Sync if the default changes (e.g. switching between nodes)
-  useEffect(() => {
-    if (defaultEncoding) {
-      setEncoding(defaultEncoding);
-    }
-  }, [defaultEncoding]);
+  const [overrideEncoding, setOverrideEncoding] = useState<BytesDisplayEncoding | null>(null);
+  const encoding = overrideEncoding ?? defaultEncoding ?? guessed;
 
   const formatted = useMemo(
     () => formatBytes(bytes, encoding),
@@ -47,7 +39,7 @@ export function BytesFieldDisplay({
 
   const handleChange = (v: string) => {
     const enc = v as BytesDisplayEncoding;
-    setEncoding(enc);
+    setOverrideEncoding(enc);
     onEncodingChange?.(enc);
   };
 

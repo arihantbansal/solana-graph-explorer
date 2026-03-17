@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useAsync } from "react-async-hook";
 import { useTransactionHistory } from "@/hooks/useTransactionHistory";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import {
@@ -84,35 +85,18 @@ export function BalanceChangeHistory({
   // ATA tx history — fetched when a specific mint is selected
   const ataHistory = useTransactionHistory(selectedAta, rpcUrl);
 
-  const loadedRef = useRef(false);
-
-  // Auto-fetch main history on mount
-  useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-    mainHistory.loadInitial();
-  }, [mainHistory.loadInitial]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Reset when address changes
-  useEffect(() => {
-    loadedRef.current = false;
-  }, [address]);
+  // Auto-fetch main history on mount and when address changes
+  useAsync(mainHistory.loadInitial, [address]);
 
   // Fetch token balances when SPL is first selected (for the mint picker)
   const tokensFetchedRef = useRef(false);
-  useEffect(() => {
-    if (mintFilter === "spl" && !tokensFetchedRef.current) {
-      tokensFetchedRef.current = true;
-      tokenBalances.load();
-    }
-  }, [mintFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-load ATA tx history when a mint is selected and ATA is known
-  useEffect(() => {
+  useAsync(async () => {
     if (selectedAta && ataHistory.allTransactions.length === 0 && !ataHistory.isLoading) {
-      ataHistory.loadInitial();
+      await ataHistory.loadInitial();
     }
-  }, [selectedAta]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedAta]);
 
   // Extract SOL + SPL change rows from main history
   // With Helius balanceChanged, mainHistory includes ATA transactions too
@@ -192,14 +176,12 @@ export function BalanceChangeHistory({
     return mints;
   }, [allMints, tokenBalances.tokens]);
 
-  useEffect(() => {
+  useAsync(async () => {
     if (allKnownMints.size === 0) return;
-    let cancelled = false;
     const mintsToFetch = [...allKnownMints].filter((mint) => !assetInfos.has(mint));
-    Promise.all(
+    await Promise.all(
       mintsToFetch.map(async (mint) => {
         const info = await detectAsset(mint, rpcUrl);
-        if (cancelled) return;
         setAssetInfos((prev) => {
           const next = new Map(prev);
           next.set(mint, info);
@@ -207,8 +189,7 @@ export function BalanceChangeHistory({
         });
       }),
     );
-    return () => { cancelled = true; };
-  }, [allKnownMints, rpcUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [allKnownMints, rpcUrl]);
 
   const isHelius = mainHistory.isHelius;
 
@@ -324,7 +305,10 @@ export function BalanceChangeHistory({
             onClick={() => {
               setMintFilter(f);
               if (f !== "spl") setSelectedMint(null);
-
+              if (f === "spl" && !tokensFetchedRef.current) {
+                tokensFetchedRef.current = true;
+                tokenBalances.load();
+              }
             }}
           >
             {f === "all" ? "All" : f === "sol" ? "SOL" : "SPL"}

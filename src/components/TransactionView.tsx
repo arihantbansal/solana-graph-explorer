@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useAsync } from "react-async-hook";
 import { ReactFlowProvider } from "@xyflow/react";
 import { Loader2, ChevronUp, ChevronDown, GripHorizontal } from "lucide-react";
 import { useView } from "@/contexts/ViewContext";
@@ -60,63 +61,47 @@ export function TransactionView() {
   const startHeight = useRef(0);
 
   // Fetch and decode transaction when signature changes
-  useEffect(() => {
+  useAsync(async () => {
     if (!state.txSignature || !state.txLoading) return;
 
-    let cancelled = false;
+    try {
+      const tx = await fetchTransactionBySignature(
+        state.txSignature,
+        rpcEndpoint,
+      );
 
-    (async () => {
-      try {
-        const tx = await fetchTransactionBySignature(
-          state.txSignature!,
-          rpcEndpoint,
-        );
-        if (cancelled) return;
-
-        if (!tx) {
-          dispatch({
-            type: "SET_TX_ERROR",
-            error: "Transaction not found. It may not have been confirmed yet.",
-          });
-          return;
-        }
-
-        const viewData = await decodeTransaction(tx, rpcEndpoint);
-        if (cancelled) return;
-
-        dispatch({ type: "SET_TX_DATA", data: viewData });
-      } catch (err) {
-        if (cancelled) return;
+      if (!tx) {
         dispatch({
           type: "SET_TX_ERROR",
-          error:
-            err instanceof Error
-              ? err.message
-              : "Failed to fetch transaction",
+          error: "Transaction not found. It may not have been confirmed yet.",
         });
+        return;
       }
-    })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [state.txSignature, state.txLoading, rpcEndpoint, dispatch]);
+      const viewData = await decodeTransaction(tx, rpcEndpoint);
+      dispatch({ type: "SET_TX_DATA", data: viewData });
 
-  // Track transaction visits in history
-  useEffect(() => {
-    if (!state.txData || !state.txSignature) return;
-    const tx = state.txData.transaction;
-    const instructionNames = tx.instructions
-      .map((ix) => ix.decoded?.instructionName)
-      .filter((n): n is string => !!n);
-    addHistoryItem({
-      type: "transaction",
-      id: state.txSignature,
-      timestamp: Date.now(),
-      blockTime: tx.blockTime ?? undefined,
-      instructionNames: instructionNames.length > 0 ? instructionNames : undefined,
-    });
-  }, [state.txData, state.txSignature]); // eslint-disable-line react-hooks/exhaustive-deps
+      // Track transaction visit in history
+      const instructionNames = viewData.transaction.instructions
+        .map((ix) => ix.decoded?.instructionName)
+        .filter((n): n is string => !!n);
+      addHistoryItem({
+        type: "transaction",
+        id: state.txSignature,
+        timestamp: Date.now(),
+        blockTime: viewData.transaction.blockTime ?? undefined,
+        instructionNames: instructionNames.length > 0 ? instructionNames : undefined,
+      });
+    } catch (err) {
+      dispatch({
+        type: "SET_TX_ERROR",
+        error:
+          err instanceof Error
+            ? err.message
+            : "Failed to fetch transaction",
+      });
+    }
+  }, [state.txSignature, state.txLoading, rpcEndpoint]);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     isDragging.current = true;

@@ -1,4 +1,5 @@
 import { useMemo, useEffect, useCallback, useRef, useState } from "react";
+import { useAsync } from "react-async-hook";
 import {
   ReactFlow,
   Background,
@@ -72,7 +73,6 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
   const { fitView } = useReactFlow();
   const { state: graphState, dispatch } = useGraph();
   const { rpcEndpoint } = useSettings();
-  const enrichedRef = useRef(false);
   const knownGraphNodeIds = useRef(new Set<string>());
 
   // Build IDL map from cache
@@ -261,73 +261,57 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
   // Inner instruction filter state
   const [activeFilter, setActiveFilter] = useState<{ clusterIdx: number; innerIdx: number } | null>(null);
 
-  // Reset when txData changes
-  useEffect(() => {
-    setNodes(initialNodes);
-    setEdges(initialEdges);
-    setActiveFilter(null);
-    enrichedRef.current = false;
-  }, [initialNodes, initialEdges]);
-
-  // Apply inner instruction filter: hide nodes not in the selected inner ix
-  useEffect(() => {
-    if (!activeFilter) {
-      // Show all — restore hidden nodes
-      setNodes((prev) =>
-        prev.map((n) => (n.hidden ? { ...n, hidden: false } : n)),
-      );
-      setEdges((prev) =>
-        prev.map((e) => (e.hidden ? { ...e, hidden: false } : e)),
-      );
-      return;
-    }
+  // Derived: apply inner instruction filter visibility to nodes and edges
+  const filteredNodes = useMemo(() => {
+    if (!activeFilter) return nodes;
 
     const cluster = clusters[activeFilter.clusterIdx];
-    if (!cluster) return;
+    if (!cluster) return nodes;
 
     const inner = cluster.innerInstructions[activeFilter.innerIdx];
-    if (!inner) return;
+    if (!inner) return nodes;
 
     const visibleNodeIds = inner.nodeIds;
     const targetClusterId = cluster.clusterId;
 
-    setNodes((prev) =>
-      prev.map((n) => {
-        // Always show group nodes
-        if (n.type === "ixCluster") return { ...n, hidden: false };
-        // Only filter nodes within the target cluster
-        if (n.parentId !== targetClusterId) return { ...n, hidden: false };
-        // Show if this node belongs to the inner instruction
-        const shouldShow = visibleNodeIds.has(n.id);
-        return n.hidden === !shouldShow ? n : { ...n, hidden: !shouldShow };
-      }),
-    );
-
-    // Hide edges where either end is hidden
-    setEdges((prev) => {
-      // Build set of visible node IDs after filtering
-      const allVisibleNodes = new Set<string>();
-      for (const node of initialNodes) {
-        if (node.type === "ixCluster") {
-          allVisibleNodes.add(node.id);
-        } else if (node.parentId !== targetClusterId) {
-          allVisibleNodes.add(node.id);
-        } else if (visibleNodeIds.has(node.id)) {
-          allVisibleNodes.add(node.id);
-        }
-      }
-      return prev.map((e) => {
-        const shouldShow = allVisibleNodes.has(e.source) && allVisibleNodes.has(e.target);
-        return e.hidden === !shouldShow ? e : { ...e, hidden: !shouldShow };
-      });
+    return nodes.map((n) => {
+      if (n.type === "ixCluster") return { ...n, hidden: false };
+      if (n.parentId !== targetClusterId) return { ...n, hidden: false };
+      const shouldShow = visibleNodeIds.has(n.id);
+      return n.hidden === !shouldShow ? n : { ...n, hidden: !shouldShow };
     });
-  }, [activeFilter, clusters, initialNodes]);
+  }, [nodes, activeFilter, clusters]);
+
+  const filteredEdges = useMemo(() => {
+    if (!activeFilter) return edges;
+
+    const cluster = clusters[activeFilter.clusterIdx];
+    if (!cluster) return edges;
+
+    const inner = cluster.innerInstructions[activeFilter.innerIdx];
+    if (!inner) return edges;
+
+    const visibleNodeIds = inner.nodeIds;
+    const targetClusterId = cluster.clusterId;
+
+    const allVisibleNodes = new Set<string>();
+    for (const node of nodes) {
+      if (node.type === "ixCluster") {
+        allVisibleNodes.add(node.id);
+      } else if (node.parentId !== targetClusterId) {
+        allVisibleNodes.add(node.id);
+      } else if (visibleNodeIds.has(node.id)) {
+        allVisibleNodes.add(node.id);
+      }
+    }
+    return edges.map((e) => {
+      const shouldShow = allVisibleNodes.has(e.source) && allVisibleNodes.has(e.target);
+      return e.hidden === !shouldShow ? e : { ...e, hidden: !shouldShow };
+    });
+  }, [edges, activeFilter, clusters, nodes]);
 
   // Async account enrichment: fetch and decode all unique accounts
-  useEffect(() => {
-    if (enrichedRef.current) return;
-    enrichedRef.current = true;
-
+  useAsync(async () => {
     const accountNodes = initialNodes.filter((n) => n.type === "account");
     if (accountNodes.length === 0) return;
 
@@ -340,29 +324,27 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
       addrToNodeIds.set(addr, existing);
     }
 
-    (async () => {
-      const uniqueAddrs = Array.from(addrToNodeIds.keys());
-      const batchMap = await fetchAndDecodeMany(uniqueAddrs, rpcEndpoint);
+    const uniqueAddrs = Array.from(addrToNodeIds.keys());
+    const batchMap = await fetchAndDecodeMany(uniqueAddrs, rpcEndpoint);
 
-      for (const [addr, nodeIds] of addrToNodeIds) {
-        const result = batchMap.get(addr);
-        if (!result) continue;
+    for (const [addr, nodeIds] of addrToNodeIds) {
+      const result = batchMap.get(addr);
+      if (!result) continue;
 
-        const enrichData = toEnrichData(result);
+      const enrichData = toEnrichData(result);
 
-        for (const nodeId of nodeIds) {
-          dispatch({ type: "SET_NODE_DATA", nodeId, data: enrichData });
-        }
-
-        setNodes((prev) =>
-          prev.map((n) =>
-            nodeIds.includes(n.id)
-              ? { ...n, data: { ...n.data, ...enrichData } }
-              : n,
-          ),
-        );
+      for (const nodeId of nodeIds) {
+        dispatch({ type: "SET_NODE_DATA", nodeId, data: enrichData });
       }
-    })();
+
+      setNodes((prev) =>
+        prev.map((n) =>
+          nodeIds.includes(n.id)
+            ? { ...n, data: { ...n.data, ...enrichData } }
+            : n,
+        ),
+      );
+    }
   }, [initialNodes, rpcEndpoint, dispatch]);
 
   const onNodesChange: OnNodesChange = useCallback(
@@ -395,11 +377,9 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
     onInstructionSelect?.(null);
   }, [dispatch, onInstructionSelect]);
 
-  // Fit view once on initial load only
-  const initialFitDone = useRef(false);
+  // Fit view once on initial mount (key prop handles remount on txData change)
   useEffect(() => {
-    if (nodes.length === 0 || initialFitDone.current) return;
-    initialFitDone.current = true;
+    if (nodes.length === 0) return;
 
     const t1 = setTimeout(() => {
       fitView({ duration: 300, padding: 0.1 });
@@ -408,13 +388,13 @@ function TransactionCanvasInner({ txData, onInstructionSelect }: TransactionCanv
       fitView({ duration: 300, padding: 0.1 });
     }, 600);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [nodes.length, fitView]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="w-full h-full">
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={filteredNodes}
+        edges={filteredEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
@@ -447,5 +427,5 @@ interface TransactionCanvasProps {
 }
 
 export function TransactionCanvas({ txData, onInstructionSelect }: TransactionCanvasProps) {
-  return <TransactionCanvasInner txData={txData} onInstructionSelect={onInstructionSelect} />;
+  return <TransactionCanvasInner key={txData.transaction.signature} txData={txData} onInstructionSelect={onInstructionSelect} />;
 }

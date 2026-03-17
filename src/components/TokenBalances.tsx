@@ -2,7 +2,8 @@ import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { shortenAddress } from "@/utils/format";
 import { detectAsset, type DasAssetInfo } from "@/engine/assetDetection";
 import { Loader2, Coins } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
+import { useAsync } from "react-async-hook";
 
 interface TokenBalancesProps {
   address: string;
@@ -24,45 +25,24 @@ export function TokenBalances({
     new Map(),
   );
 
-  const loadedRef = useRef(false);
-
-  // Auto-fetch on mount (tab selected)
-  useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-    load();
-  }, [load]);
-
-  // Reset loadedRef when address changes
-  useEffect(() => {
-    loadedRef.current = false;
-  }, [address]);
+  // Auto-fetch on mount and when address changes (load() uses internal cache)
+  useAsync(load, [address]);
 
   // Progressively load asset info (name/image) for each mint after tokens load
-  useEffect(() => {
+  useAsync(async () => {
     if (tokens.length === 0) return;
-
-    let cancelled = false;
-
-    const loadAssets = async () => {
-      await Promise.all(
-        tokens.map(async (token) => {
-          const info = await detectAsset(token.mint, rpcUrl);
-          if (info && !cancelled) {
-            setAssetInfo((prev) => {
-              const next = new Map(prev);
-              next.set(token.mint, info);
-              return next;
-            });
-          }
-        }),
-      );
-    };
-
-    loadAssets();
-    return () => {
-      cancelled = true;
-    };
+    await Promise.all(
+      tokens.map(async (token) => {
+        const info = await detectAsset(token.mint, rpcUrl);
+        if (info) {
+          setAssetInfo((prev) => {
+            const next = new Map(prev);
+            next.set(token.mint, info);
+            return next;
+          });
+        }
+      }),
+    );
   }, [tokens, rpcUrl]);
 
   return (
