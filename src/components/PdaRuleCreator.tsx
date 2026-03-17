@@ -1,4 +1,5 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useRef } from "react";
+import { useAsyncCallback } from "react-async-hook";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -31,7 +32,6 @@ import { CUSTOM_SEED_TYPES, BUFFER_ENCODING_OPTIONS, customSeedToIdlSeed } from 
 import type { IdlSeed } from "@/types/idl";
 import type { PdaRelationshipRule, SeedMapping, SeedSource } from "@/types/relationships";
 import { Loader2, Search, Bookmark, FlaskConical, Plus, Trash2 } from "lucide-react";
-import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { isPubkey, shortenAddress } from "@/utils/format";
 import { makeIdlFetchedHandler } from "@/utils/programSaver";
 
@@ -114,8 +114,6 @@ export function PdaRuleCreator({
     name: "seedMappings",
   });
 
-  const deriveAction = useAsyncAction<string>();
-
   const selectedProgramId = form.watch("selectedProgramId");
   const customProgramId = form.watch("customProgramId");
   const useCustomProgram = form.watch("useCustomProgram");
@@ -167,6 +165,26 @@ export function PdaRuleCreator({
   }, [nodeData.decodedData]);
 
   const pubkeyFields = decodedFields.filter((f) => f.isPubkey);
+
+  // Refs so the async callback always sees current values (defined before callbacks that use deriveAction)
+  const buildSeedInputsRef = useRef<() => SeedInputValue[] | null>(() => null);
+  const effectiveProgramIdRef = useRef(effectiveProgramId);
+  effectiveProgramIdRef.current = effectiveProgramId;
+
+  const deriveAction = useAsyncCallback(async () => {
+    const progId = effectiveProgramIdRef.current;
+    if (!progId) throw new Error("No program ID specified");
+    const inputs = buildSeedInputsRef.current();
+    if (!inputs) throw new Error("Some seed values are missing");
+
+    const seedBuffers = await buildSeedBuffers(inputs);
+    const programAddr = address(progId);
+    const [pda] = await getProgramDerivedAddress({
+      programAddress: programAddr,
+      seeds: seedBuffers,
+    });
+    return pda as string;
+  });
 
   const handleProgramSelect = useCallback(
     (programId: string) => {
@@ -317,27 +335,12 @@ export function PdaRuleCreator({
     return inputs;
   }, [currentSeeds, seedMappings, nodeData, isCustomPda]);
 
-  const handleDerive = useCallback(async () => {
-    if (!effectiveProgramId) {
-      deriveAction.setError("No program ID specified");
-      return;
-    }
-    const inputs = buildSeedInputs();
-    if (!inputs) {
-      deriveAction.setError("Some seed values are missing");
-      return;
-    }
+  // Keep ref in sync with latest buildSeedInputs
+  buildSeedInputsRef.current = buildSeedInputs;
 
-    await deriveAction.run(async () => {
-      const seedBuffers = await buildSeedBuffers(inputs);
-      const programAddr = address(effectiveProgramId);
-      const [pda] = await getProgramDerivedAddress({
-        programAddress: programAddr,
-        seeds: seedBuffers,
-      });
-      return pda as string;
-    });
-  }, [effectiveProgramId, buildSeedInputs, deriveAction]);
+  const handleDeriveAction = useAsyncCallback(async () => {
+    await deriveAction.execute();
+  });
 
   const derivedAddress = deriveAction.result;
 
@@ -380,7 +383,7 @@ export function PdaRuleCreator({
     };
   }, [currentSeeds, seedMappings, nodeData, label, effectiveProgramId, selectedPda, selectedRule]);
 
-  const handleAddToGraph = useCallback(async () => {
+  const handleAddToGraphAction = useAsyncCallback(async () => {
     if (!derivedAddress) return;
 
     const existingIds = new Set(state.nodes.map((n) => n.id));
@@ -425,7 +428,7 @@ export function PdaRuleCreator({
     dispatch({ type: "SELECT_NODE", nodeId: derivedAddress });
 
     existingIds.add(derivedAddress);
-    expandAccount({
+    await expandAccount({
       address: derivedAddress,
       sourcePosition: position,
       rpcUrl: rpcEndpoint,
@@ -437,18 +440,7 @@ export function PdaRuleCreator({
     });
 
     onOpenChange(false);
-  }, [
-    derivedAddress,
-    state.nodes,
-    dispatch,
-    nodeId,
-    rpcEndpoint,
-    saveProgram,
-    onOpenChange,
-    buildPdaRule,
-    label,
-    selectedPda,
-  ]);
+  });
 
   const handleSaveAsRule = useCallback(() => {
     const rule = buildPdaRule();
@@ -678,13 +670,13 @@ export function PdaRuleCreator({
 
               <div className="flex gap-2">
                 <Button
-                  onClick={handleDerive}
-                  disabled={deriveAction.isLoading}
+                  onClick={handleDeriveAction.execute}
+                  disabled={deriveAction.loading}
                   size="sm"
                   variant="outline"
                   className="flex-1"
                 >
-                  {deriveAction.isLoading ? (
+                  {deriveAction.loading ? (
                     <Loader2 className="size-3.5 animate-spin mr-1" />
                   ) : (
                     <FlaskConical className="size-3.5 mr-1" />
@@ -692,7 +684,7 @@ export function PdaRuleCreator({
                   Test Derive
                 </Button>
                 <Button
-                  onClick={handleAddToGraph}
+                  onClick={handleAddToGraphAction.execute}
                   disabled={!derivedAddress}
                   size="sm"
                   className="flex-1"
@@ -722,7 +714,7 @@ export function PdaRuleCreator({
               )}
               {deriveAction.error && (
                 <div className="text-xs text-destructive bg-destructive/10 p-2 rounded">
-                  {deriveAction.error}
+                  {deriveAction.error.message}
                 </div>
               )}
             </>

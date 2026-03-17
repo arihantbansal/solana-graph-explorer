@@ -25,27 +25,27 @@ export function useRelationshipRules() {
 
     if (relationshipRules.length === 0) return;
 
-    for (const node of state.nodes) {
-      // Only process nodes that have finished loading and have data
-      if (node.data.isLoading) continue;
-      if (!node.data.accountType) continue;
-      if (!node.data.decodedData) continue;
+    // Only process loaded nodes with decoded data
+    const readyNodes = state.nodes.filter(
+      (node) => !node.data.isLoading && node.data.accountType && node.data.decodedData,
+    );
 
-      for (const rule of relationshipRules) {
-        // Match source account type and program
-        if (rule.sourceAccountType !== node.data.accountType) continue;
-        if (rule.sourceProgram) {
-          if (
-            rule.sourceProgram !== node.data.programId &&
-            rule.sourceProgram !== node.data.programName
-          ) {
-            continue;
-          }
-        }
+    for (const node of readyNodes) {
+      // Find matching rules for this node's account type and program
+      const matchingRules = relationshipRules.filter(
+        (rule) =>
+          rule.sourceAccountType === node.data.accountType &&
+          (!rule.sourceProgram ||
+            rule.sourceProgram === node.data.programId ||
+            rule.sourceProgram === node.data.programName),
+      );
 
-        const pairKey = `${node.id}:${rule.id}`;
-        if (processedPairs.current.has(pairKey)) continue;
+      // Skip already-processed pairs
+      const newPairs = matchingRules
+        .map((rule) => ({ rule, pairKey: `${node.id}:${rule.id}` }))
+        .filter(({ pairKey }) => !processedPairs.current.has(pairKey));
 
+      for (const { rule, pairKey } of newPairs) {
         // Mark as processed immediately to avoid re-triggering
         processedPairs.current.add(pairKey);
 
@@ -54,20 +54,21 @@ export function useRelationshipRules() {
         // because by the time the promise resolves the graph state may have changed.
         // ADD_EDGES already deduplicates, so we can safely dispatch without checking.
         const nodeId = node.id;
-        const ruleSnapshot = rule;
-        derivePdaFromRule(ruleSnapshot, node.data).then(async (derivedAddress) => {
+        // Fire-and-forget async — we don't want to block the useEffect
+        (async () => {
+          const derivedAddress = await derivePdaFromRule(rule, node.data);
           if (!derivedAddress) return;
 
           // Always add the edge — ADD_EDGES deduplicates by id
-          const edgeId = `pda-rule-${ruleSnapshot.id}-${nodeId}-${derivedAddress}`;
+          const edgeId = `pda-rule-${rule.id}-${nodeId}-${derivedAddress}`;
           const edge: AccountEdge = {
             id: edgeId,
             source: nodeId,
             target: derivedAddress,
             data: {
               relationshipType: "user_defined",
-              label: ruleSnapshot.label,
-              ruleId: ruleSnapshot.id,
+              label: rule.label,
+              ruleId: rule.id,
             },
           };
           dispatch({ type: "ADD_EDGES", edges: [edge] });
@@ -77,19 +78,20 @@ export function useRelationshipRules() {
           // hotspot info for an IoT device) — silently skip those.
           try {
             const account = await fetchAccount(derivedAddress, rpcEndpoint);
-            if (!account) return; // Account doesn't exist — skip silently
-          } catch {
-            return; // Fetch failed — skip silently
+            if (!account) return; // Account doesn't exist — skip
+          } catch (err) {
+            console.warn(`Failed to fetch derived PDA account ${derivedAddress}`, err);
+            return;
           }
 
           // Explore the derived address (adds node + edge + fetches data)
           exploreAddress(derivedAddress, {
             sourceNodeId: nodeId,
-            fieldName: ruleSnapshot.label,
+            fieldName: rule.label,
             depth: 1,
             skipSelect: true,
           });
-        });
+        })();
       }
     }
   }, [state.nodes, relationshipRules, dispatch, exploreAddress, rpcEndpoint]);

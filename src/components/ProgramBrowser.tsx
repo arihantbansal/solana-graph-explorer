@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useAsyncCallback } from "react-async-hook";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -61,7 +62,7 @@ export function ProgramBrowser() {
   });
 
   /** Fetch IDL and build a ProgramEntry. Returns null if not found. */
-  const fetchProgramEntry = useCallback(
+  const fetchProgramEntryAction = useAsyncCallback(
     async (programId: string): Promise<ProgramEntry | null> => {
       const idl = await fetchIdl(programId, rpcEndpoint);
       if (!idl) return null;
@@ -73,28 +74,26 @@ export function ProgramBrowser() {
         idl,
       };
     },
-    [rpcEndpoint],
   );
 
-  const handleRefresh = useCallback(
+  const handleRefreshAction = useAsyncCallback(
     async (programId: string) => {
       setRefreshingId(programId);
       try {
-        const entry = await fetchProgramEntry(programId);
+        const entry = await fetchProgramEntryAction.execute(programId);
         if (entry) refreshProgram(programId, entry);
-      } catch {
-        // refresh failed silently
+      } catch (err) {
+        console.warn(`Failed to refresh IDL for program ${programId}`, err);
       } finally {
         setRefreshingId(null);
       }
     },
-    [fetchProgramEntry, refreshProgram],
   );
 
-  const onSubmit = useCallback(
+  const onSubmitAction = useAsyncCallback(
     async (data: AddProgramForm) => {
       try {
-        const entry = await fetchProgramEntry(data.programId);
+        const entry = await fetchProgramEntryAction.execute(data.programId);
         if (!entry) {
           form.setError("programId", { message: "No IDL found for this program" });
           return;
@@ -105,7 +104,6 @@ export function ProgramBrowser() {
         form.setError("programId", { message: "Failed to fetch IDL" });
       }
     },
-    [fetchProgramEntry, saveProgram, form],
   );
 
   const handleToggle = useCallback(
@@ -139,7 +137,7 @@ export function ProgramBrowser() {
         {/* Add program by ID */}
         <div className="px-4 pb-3 space-y-1.5">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)}>
+            <form onSubmit={form.handleSubmit(onSubmitAction.execute)}>
               <FormField
                 control={form.control}
                 name="programId"
@@ -153,7 +151,7 @@ export function ProgramBrowser() {
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
-                              form.handleSubmit(onSubmit)();
+                              form.handleSubmit(onSubmitAction.execute)();
                             }
                           }}
                           className="font-mono text-xs flex-1"
@@ -213,7 +211,7 @@ export function ProgramBrowser() {
                       variant="ghost"
                       size="icon"
                       className="size-6"
-                      onClick={() => handleRefresh(program.programId)}
+                      onClick={() => handleRefreshAction.execute(program.programId)}
                       disabled={refreshingId === program.programId}
                     >
                       {refreshingId === program.programId ? (

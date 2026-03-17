@@ -12,7 +12,8 @@ export function usePersistedState<T>(
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : defaultValue;
-    } catch {
+    } catch (err) {
+      console.warn(`Failed to load persisted state for key "${key}" from localStorage`, err);
       return defaultValue;
     }
   });

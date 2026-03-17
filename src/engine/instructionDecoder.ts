@@ -19,45 +19,48 @@ export function decodeInstruction(
   let dataBytes: Uint8Array;
   try {
     dataBytes = new Uint8Array(base58Encoder.encode(instruction.data));
-  } catch {
+  } catch (err) {
+    console.warn("Failed to decode base58 instruction data", err);
     return null;
   }
 
-  // Need at least 8 bytes for the discriminator
-  if (dataBytes.length < 8) return null;
+  // Find instruction with matching discriminator (any length, including 0 for memo)
+  const matched = idl.instructions.find(
+    (ix) =>
+      ix.discriminator &&
+      ix.discriminator.length >= 0 &&
+      dataBytes.length >= ix.discriminator.length &&
+      ix.discriminator.every((b, i) => b === dataBytes[i]),
+  );
 
-  for (const ix of idl.instructions) {
-    const disc = ix.discriminator;
-    if (!disc || disc.length !== 8) continue;
+  if (!matched) return null;
 
-    let match = true;
-    for (let i = 0; i < 8; i++) {
-      if (dataBytes[i] !== disc[i]) {
-        match = false;
-        break;
-      }
-    }
-
-    if (match) {
-      try {
-        const reader = new BorshReader(dataBytes);
-        reader.offset = 8; // skip discriminator
-        const args = ix.args.length > 0 ? decodeFields(reader, ix.args, idl) : {};
-        return {
-          instructionName: ix.name,
-          args,
-          programName: idl.metadata?.name,
-        };
-      } catch {
-        // Discriminator matched but decoding failed — still return the name
-        return {
-          instructionName: ix.name,
-          args: {},
-          programName: idl.metadata?.name,
-        };
-      }
-    }
+  // Special case: empty discriminator means entire data is a UTF-8 memo string
+  if (matched.discriminator.length === 0) {
+    const memo = new TextDecoder().decode(dataBytes);
+    return {
+      instructionName: matched.name,
+      args: { memo },
+      programName: idl.metadata?.name,
+    };
   }
 
-  return null;
+  try {
+    const reader = new BorshReader(dataBytes);
+    reader.offset = matched.discriminator.length; // skip discriminator
+    const args = matched.args.length > 0 ? decodeFields(reader, matched.args, idl) : {};
+    return {
+      instructionName: matched.name,
+      args,
+      programName: idl.metadata?.name,
+    };
+  } catch (err) {
+    console.warn("Failed to decode instruction args after discriminator match", err);
+    // Discriminator matched but decoding failed — still return the name
+    return {
+      instructionName: matched.name,
+      args: {},
+      programName: idl.metadata?.name,
+    };
+  }
 }

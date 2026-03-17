@@ -8,6 +8,7 @@ import type { Idl } from "@/types/idl";
 import { getIdl } from "@/solana/idlCache";
 import { fetchIdl } from "@/solana/fetchIdl";
 import { setIdl } from "@/solana/idlCache";
+import { getBuiltinIdl } from "@/solana/builtinIdls";
 import { decodeInstruction } from "@/engine/instructionDecoder";
 
 /**
@@ -60,6 +61,7 @@ export function computeTokenBalanceChanges(
     if (delta !== 0) {
       changes.push({
         address: tx.accountKeys[pre.accountIndex] ?? String(pre.accountIndex),
+        owner: pre.owner,
         mint: pre.mint,
         preAmount,
         postAmount,
@@ -79,6 +81,7 @@ export function computeTokenBalanceChanges(
       changes.push({
         address:
           tx.accountKeys[post.accountIndex] ?? String(post.accountIndex),
+        owner: post.owner,
         mint: post.mint,
         preAmount: 0,
         postAmount,
@@ -120,14 +123,20 @@ export async function decodeTransaction(
         idls.set(pid, cached);
         return;
       }
+      // Check built-in IDLs (native programs, SPL Token, etc.)
+      const builtin = getBuiltinIdl(pid);
+      if (builtin) {
+        idls.set(pid, builtin);
+        return;
+      }
       try {
         const idl = await fetchIdl(pid, rpcUrl);
         if (idl) {
           setIdl(pid, idl);
           idls.set(pid, idl);
         }
-      } catch {
-        // IDL fetch failed — skip
+      } catch (err) {
+        console.warn(`Failed to fetch IDL for program ${pid}`, err);
       }
     }),
   );

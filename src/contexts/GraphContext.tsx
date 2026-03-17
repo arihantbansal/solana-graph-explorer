@@ -54,12 +54,12 @@ function graphReducer(state: GraphState, action: GraphAction): GraphState {
         childEdges.map((e) => (e.source === parentId ? e.target : e.source)),
       );
       // Keep children that have edges to OTHER nodes (not just this parent)
-      const sharedChildren = new Set<string>();
-      for (const edge of state.edges) {
-        if (edge.source === parentId || edge.target === parentId) continue;
-        if (childIds.has(edge.source)) sharedChildren.add(edge.source);
-        if (childIds.has(edge.target)) sharedChildren.add(edge.target);
-      }
+      const sharedChildren = new Set(
+        state.edges
+          .filter((e) => e.source !== parentId && e.target !== parentId)
+          .flatMap((e) => [e.source, e.target])
+          .filter((id) => childIds.has(id)),
+      );
       const toRemove = new Set([...childIds].filter((id) => !sharedChildren.has(id)));
       return {
         ...state,

@@ -3,7 +3,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { GraphProvider } from "@/contexts/GraphContext";
 import { SettingsProvider, useSettings } from "@/contexts/SettingsContext";
 import { ViewProvider, useView } from "@/contexts/ViewContext";
-import { SearchBar, DepthControl, RpcSelector } from "@/components/SearchBar";
+import { SearchBar, DepthControl, RpcSelector, BookmarksButton } from "@/components/SearchBar";
 import { GraphCanvas } from "@/components/GraphCanvas";
 import { NodeDetailPanel } from "@/components/NodeDetailPanel";
 import { RelationshipEditor } from "@/components/RelationshipEditor";
@@ -15,7 +15,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { useRelationshipRules } from "@/hooks/useRelationshipRules";
 import { useClearAndExplore } from "@/hooks/useClearAndExplore";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import { Download, Upload, Menu } from "lucide-react";
+import { Download, Upload, Menu, Sun, Moon } from "lucide-react";
+import { HistoryProvider } from "@/contexts/HistoryContext";
 
 function RelationshipRuleEngine() {
   useRelationshipRules();
@@ -78,6 +79,21 @@ function SettingsIO() {
   );
 }
 
+function DarkModeToggle() {
+  const { darkMode, setDarkMode } = useSettings();
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-7"
+      onClick={() => setDarkMode(!darkMode)}
+      title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      {darkMode ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
+    </Button>
+  );
+}
+
 function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const isSm = useMediaQuery("(max-width: 767px)");
@@ -110,24 +126,29 @@ function AppLayout() {
 
   return (
     <div className="h-screen w-screen flex flex-col">
-      <header className="flex items-center gap-2 shrink-0">
+      <header className="flex items-center gap-2 shrink-0 border-b bg-background">
         <SearchBar />
-        <div className="flex items-center gap-2 pr-3">
+        {/* RPC Selector: visible at md+, right after search/history */}
+        <div className="hidden md:flex">
+          <RpcSelector />
+        </div>
+        {/* Right side controls — pushed to far right */}
+        <div className="ml-auto flex items-center gap-2 pr-3">
+          {/* Bookmarks */}
+          <BookmarksButton onSelect={(addr) => clearAndExplore(addr)} />
           {/* PdaSearch: visible at md+, hidden on sm */}
           <div className="hidden md:flex">
             <PdaSearch />
           </div>
-          {/* ProgramBrowser, RelationshipEditor, SettingsIO: visible at lg+ */}
-          <div className="hidden lg:flex items-center gap-2">
-            <ProgramBrowser />
+          {/* Rules: visible at md+ */}
+          <div className="hidden md:flex">
             <RelationshipEditor />
-            <SettingsIO />
           </div>
-          {/* Hamburger button: visible below lg */}
+          {/* Hamburger menu */}
           <Button
-            variant="ghost"
+            variant="outline"
             size="icon"
-            className="size-7 lg:hidden"
+            className="size-8"
             onClick={() => setMenuOpen(true)}
           >
             <Menu className="size-4" />
@@ -164,21 +185,27 @@ function AppLayout() {
               <h4 className="text-xs font-medium text-muted-foreground mb-2">Depth</h4>
               <DepthControl />
             </div>
-            <div>
-              <h4 className="text-xs font-medium text-muted-foreground mb-2">RPC Endpoint</h4>
-              <RpcSelector />
-            </div>
+            {isSm && (
+              <div>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">RPC Endpoint</h4>
+                <RpcSelector />
+              </div>
+            )}
             <div>
               <h4 className="text-xs font-medium text-muted-foreground mb-2">Programs</h4>
               <ProgramBrowser />
             </div>
-            <div>
-              <h4 className="text-xs font-medium text-muted-foreground mb-2">Relationships</h4>
-              <RelationshipEditor />
-            </div>
+            {/* Rules: only in menu on sm screens */}
+            {isSm && (
+              <div>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Relationships</h4>
+                <RelationshipEditor />
+              </div>
+            )}
             <div>
               <h4 className="text-xs font-medium text-muted-foreground mb-2">Settings</h4>
               <div className="flex items-center gap-2">
+                <DarkModeToggle />
                 <SettingsIO />
               </div>
             </div>
@@ -192,13 +219,15 @@ function AppLayout() {
 function App() {
   return (
     <SettingsProvider>
-      <GraphProvider>
-        <ViewProvider>
-          <ReactFlowProvider>
-            <AppLayout />
-          </ReactFlowProvider>
-        </ViewProvider>
-      </GraphProvider>
+      <HistoryProvider>
+        <GraphProvider>
+          <ViewProvider>
+            <ReactFlowProvider>
+              <AppLayout />
+            </ReactFlowProvider>
+          </ViewProvider>
+        </GraphProvider>
+      </HistoryProvider>
     </SettingsProvider>
   );
 }

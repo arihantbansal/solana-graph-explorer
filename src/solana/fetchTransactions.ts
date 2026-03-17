@@ -38,9 +38,16 @@ export function resetHeliusDetection(): void {
 export async function fetchTransactions(
   addr: string,
   rpcUrl: string,
-  options?: { before?: string; limit?: number },
+  options?: {
+    before?: string;
+    limit?: number;
+    sortOrder?: "asc" | "desc";
+    /** Helius-only: include associated token account transactions */
+    tokenAccounts?: "none" | "balanceChanged" | "all";
+  },
 ): Promise<TransactionPage> {
   const limit = options?.limit ?? 20;
+  const sortOrder = options?.sortOrder ?? "desc";
 
   // Reset detection if URL changed
   if (rpcUrl !== detectedForUrl) {
@@ -51,7 +58,7 @@ export async function fetchTransactions(
   // If we haven't detected yet, try Helius first
   if (heliusDetected === null) {
     try {
-      const result = await fetchViaHelius(addr, rpcUrl, limit, options?.before);
+      const result = await fetchViaHelius(addr, rpcUrl, limit, options?.before, sortOrder, options?.tokenAccounts);
       heliusDetected = true;
       return result;
     } catch (e: unknown) {
@@ -64,7 +71,7 @@ export async function fetchTransactions(
   }
 
   if (heliusDetected) {
-    return fetchViaHelius(addr, rpcUrl, limit, options?.before);
+    return fetchViaHelius(addr, rpcUrl, limit, options?.before, sortOrder, options?.tokenAccounts);
   }
 
   const page = await fetchViaStandardRpc(addr, rpcUrl, limit, options?.before);
@@ -94,12 +101,9 @@ async function decodeTransactionInstructions(
   rpcUrl: string,
 ): Promise<void> {
   // Collect unique program IDs
-  const programIds = new Set<string>();
-  for (const tx of transactions) {
-    for (const ix of tx.instructions) {
-      programIds.add(ix.programId);
-    }
-  }
+  const programIds = new Set(
+    transactions.flatMap((tx) => tx.instructions.map((ix) => ix.programId)),
+  );
 
   // Fetch any missing IDLs in parallel
   const idlMap = new Map<string, Idl>();
@@ -113,25 +117,18 @@ async function decodeTransactionInstructions(
             idl = fetched;
             setIdl(pid, idl);
           }
-        } catch {
-          // IDL fetch failed — skip
+        } catch (err) {
+          console.warn(`Failed to fetch IDL for program ${pid}`, err);
         }
       }
       if (idl) idlMap.set(pid, idl);
     }),
   );
 
-  // Decode each instruction
-  for (const tx of transactions) {
-    for (const ix of tx.instructions) {
-      if (ix.decoded) continue;
-      const idl = idlMap.get(ix.programId);
-      if (!idl) continue;
-      const decoded = decodeInstruction(ix, idl);
-      if (decoded) {
-        ix.decoded = decoded;
-      }
-    }
+  // Decode each undecoded instruction that has an available IDL (mutates in place per function contract)
+  for (const ix of transactions.flatMap((tx) => tx.instructions).filter((ix) => !ix.decoded && idlMap.has(ix.programId))) {
+    const decoded = decodeInstruction(ix, idlMap.get(ix.programId)!);
+    if (decoded) ix.decoded = decoded;
   }
 }
 
@@ -142,12 +139,18 @@ async function fetchViaHelius(
   rpcUrl: string,
   limit: number,
   before?: string,
+  sortOrder: "asc" | "desc" = "desc",
+  tokenAccounts?: "none" | "balanceChanged" | "all",
 ): Promise<TransactionPage> {
   const options: Record<string, unknown> = {
     transactionDetails: "full",
     limit,
+    sortOrder,
   };
   if (before) options.paginationToken = before;
+  if (tokenAccounts && tokenAccounts !== "none") {
+    options.filters = { tokenAccounts };
+  }
 
   const body = {
     jsonrpc: "2.0",
@@ -235,8 +238,8 @@ async function fetchViaStandardRpc(
   if (before) {
     try {
       sigOpts.before = signature(before);
-    } catch {
-      // Invalid signature format (e.g. Helius pagination token) — skip before param
+    } catch (err) {
+      console.warn("Invalid signature format for 'before' param, skipping", err);
     }
   }
 
@@ -250,23 +253,20 @@ async function fetchViaStandardRpc(
 
   // Fetch all transactions in parallel
   const results = await Promise.allSettled(
-    sigs.map((sigInfo) =>
-      rpc
+    sigs.map(async (sigInfo) => {
+      const tx = await rpc
         .getTransaction(signature(String(sigInfo.signature)), {
           encoding: "jsonParsed",
           maxSupportedTransactionVersion: 0,
         })
-        .send()
-        .then((tx) => tx ? mapStandardTx(sigInfo.signature as string, tx) : null),
-    ),
+        .send();
+      return tx ? mapStandardTx(sigInfo.signature as string, tx) : null;
+    }),
   );
 
-  const transactions: ParsedTransaction[] = [];
-  for (const result of results) {
-    if (result.status === "fulfilled" && result.value) {
-      transactions.push(result.value);
-    }
-  }
+  const transactions = results
+    .filter((r): r is PromiseFulfilledResult<ParsedTransaction | null> => r.status === "fulfilled" && !!r.value)
+    .map((r) => r.value!);
 
   return {
     transactions,

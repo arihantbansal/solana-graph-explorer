@@ -1,5 +1,5 @@
 import type { PdaSeedRelationship } from "@/types/relationships";
-import type { Idl } from "@/types/idl";
+import type { Idl, IdlSeed } from "@/types/idl";
 
 /**
  * Convert a PascalCase or camelCase type name to snake_case for matching
@@ -11,6 +11,12 @@ function toSnakeCase(name: string): string {
     .replace(/([A-Z])/g, "_$1")
     .toLowerCase()
     .replace(/^_/, "");
+}
+
+type AccountSeed = Extract<IdlSeed, { kind: "account" }>;
+
+function isAccountSeed(seed: IdlSeed): seed is AccountSeed {
+  return seed.kind === "account";
 }
 
 /**
@@ -29,70 +35,58 @@ export function inferPdaRelationships(
   idl: Idl,
   sourceAccountType?: string,
 ): PdaSeedRelationship[] {
-  const relationships: PdaSeedRelationship[] = [];
   const seen = new Set<string>();
 
   const sourceSnake = sourceAccountType ? toSnakeCase(sourceAccountType) : undefined;
 
-  for (const instruction of idl.instructions) {
-    for (const account of instruction.accounts) {
-      if (!account.pda?.seeds) {
-        continue;
-      }
-
-      // Only match PDA accounts whose name corresponds to the source account type.
-      // Anchor IDL account names are snake_case versions of the type, sometimes
-      // without version suffixes. Match if the PDA account name is a prefix of
-      // or equal to the source type's snake_case form.
-      if (sourceSnake) {
+  // Flatten all instruction accounts with PDA seeds that match the source type
+  const matchingAccounts = idl.instructions.flatMap((instruction) =>
+    instruction.accounts
+      .filter((account) => {
+        if (!account.pda?.seeds) return false;
+        if (!sourceSnake) return true;
         const accountSnake = account.name.toLowerCase();
-        if (accountSnake !== sourceSnake && !sourceSnake.startsWith(accountSnake + "_")) {
-          // Also check without trailing version suffix (e.g., "key_to_asset" matches "key_to_asset_v0")
-          const sourceWithoutVersion = sourceSnake.replace(/_v\d+$/, "");
-          if (accountSnake !== sourceWithoutVersion) {
-            continue;
-          }
-        }
-      }
+        const sourceWithoutVersion = sourceSnake.replace(/_v\d+$/, "");
+        return (
+          accountSnake === sourceSnake ||
+          sourceSnake.startsWith(accountSnake + "_") ||
+          accountSnake === sourceWithoutVersion
+        );
+      })
+      .map((account) => ({ instruction, account, seeds: account.pda!.seeds })),
+  );
 
-      const seeds = account.pda.seeds;
-      const hasArgSeed = seeds.some((s) => s.kind === "arg");
+  return matchingAccounts.flatMap(({ instruction, seeds }) => {
+    const hasArgSeed = seeds.some((s) => s.kind === "arg");
 
-      for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
-        const seed = seeds[seedIndex];
-
-        if (seed.kind !== "account") {
-          continue;
-        }
-
-        const path = seed.path;
-        // Resolve the path against decoded data
-        const value = resolvePath(decodedData, path);
-
-        if (typeof value !== "string" || !value) {
-          continue;
-        }
-
+    return seeds
+      .map((seed, seedIndex) => ({ seed, seedIndex }))
+      .filter((entry): entry is { seed: AccountSeed; seedIndex: number } =>
+        isAccountSeed(entry.seed),
+      )
+      .map(({ seed, seedIndex }) => {
+        const value = resolvePath(decodedData, seed.path);
+        return { seed, seedIndex, value };
+      })
+      .filter((entry): entry is { seed: AccountSeed; seedIndex: number; value: string } =>
+        typeof entry.value === "string" && !!entry.value,
+      )
+      .filter(({ value, seedIndex }) => {
         const dedupKey = `${sourceAddress}:${value}:pda_seed:${instruction.name}:${seedIndex}`;
-        if (seen.has(dedupKey)) {
-          continue;
-        }
+        if (seen.has(dedupKey)) return false;
         seen.add(dedupKey);
-
-        relationships.push({
-          sourceAddress,
-          targetAddress: value,
-          type: "pda_seed",
-          label: `PDA seed: ${path} (${instruction.name})`,
-          seedIndex,
-          instructionName: instruction.name,
-          isPartial: hasArgSeed,
-        });
-      }
-    }
-  }
-
-  return relationships;
+        return true;
+      })
+      .map(({ seed, seedIndex, value }) => ({
+        sourceAddress,
+        targetAddress: value,
+        type: "pda_seed" as const,
+        label: `PDA seed: ${seed.path} (${instruction.name})`,
+        seedIndex,
+        instructionName: instruction.name,
+        isPartial: hasArgSeed,
+      }));
+  });
 }
 
 function resolvePath(

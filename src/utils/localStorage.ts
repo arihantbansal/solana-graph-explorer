@@ -6,8 +6,8 @@ export function loadSavedPrograms(): ProgramEntry[] {
   try {
     const raw = localStorage.getItem(PROGRAMS_KEY);
     if (raw) return JSON.parse(raw) as ProgramEntry[];
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn("Failed to load saved programs from localStorage", err);
   }
   return [];
 }

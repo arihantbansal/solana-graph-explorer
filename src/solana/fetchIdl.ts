@@ -8,6 +8,7 @@ import {
 import { decompressSync } from "fflate";
 import { fetchAccountsBatch } from "./fetchAccounts";
 import type { FetchedAccount } from "./fetchAccount";
+import { isLegacyFormat, convertLegacyIdl } from "@/engine/legacyIdlConverter";
 
 /**
  * Derive the legacy Anchor IDL account address.
@@ -65,11 +66,13 @@ export async function deriveMetadataIdlAddress(
  *
  * Total header before compressed data: 44 bytes
  */
-export function parseAnchorIdlAccount(data: Uint8Array): Idl {
+export function parseAnchorIdlAccount(data: Uint8Array, programAddress?: string): Idl {
   const compressed = data.slice(44);
   const decompressed = decompressSync(compressed);
   const jsonStr = new TextDecoder().decode(decompressed);
-  return JSON.parse(jsonStr) as Idl;
+  const raw = JSON.parse(jsonStr);
+  if (isLegacyFormat(raw)) return convertLegacyIdl(raw, programAddress);
+  return raw as Idl;
 }
 
 /**
@@ -84,7 +87,7 @@ export function parseAnchorIdlAccount(data: Uint8Array): Idl {
  *   32 bytes - program key
  *   N bytes  - data payload
  */
-export function parseMetadataIdlAccount(data: Uint8Array): Idl | null {
+export function parseMetadataIdlAccount(data: Uint8Array, programAddress?: string): Idl | null {
   if (data.length < 72) return null;
 
   const encoding = data[1];
@@ -99,20 +102,22 @@ export function parseMetadataIdlAccount(data: Uint8Array): Idl | null {
     jsonStr = new TextDecoder().decode(payload);
   }
 
-  return JSON.parse(jsonStr) as Idl;
+  const raw = JSON.parse(jsonStr);
+  if (isLegacyFormat(raw)) return convertLegacyIdl(raw, programAddress);
+  return raw as Idl;
 }
 
 /**
  * Try to parse an IDL from already-fetched account data.
  * Tries legacy Anchor format first, then Program Metadata format.
  */
-export function tryParseIdlFromAccount(account: FetchedAccount): Idl | null {
+export function tryParseIdlFromAccount(account: FetchedAccount, programAddress?: string): Idl | null {
   try {
-    return parseAnchorIdlAccount(account.data);
-  } catch { /* not legacy format */ }
+    return parseAnchorIdlAccount(account.data, programAddress);
+  } catch (err) { console.warn("Failed to parse IDL as legacy Anchor format", err); }
   try {
-    return parseMetadataIdlAccount(account.data);
-  } catch { /* not metadata format */ }
+    return parseMetadataIdlAccount(account.data, programAddress);
+  } catch (err) { console.warn("Failed to parse IDL as Program Metadata format", err); }
   return null;
 }
 
@@ -155,8 +160,8 @@ export async function fetchIdl(
     const account = accountMap.get(legacyAddr);
     if (account) {
       try {
-        return parseAnchorIdlAccount(account.data);
-      } catch { /* parse failed */ }
+        return parseAnchorIdlAccount(account.data, programId);
+      } catch (err) { console.warn(`Failed to parse legacy Anchor IDL for program ${programId}`, err); }
     }
   }
 
@@ -165,8 +170,8 @@ export async function fetchIdl(
     const account = accountMap.get(metaAddr);
     if (account) {
       try {
-        return parseMetadataIdlAccount(account.data);
-      } catch { /* parse failed */ }
+        return parseMetadataIdlAccount(account.data, programId);
+      } catch (err) { console.warn(`Failed to parse metadata IDL for program ${programId}`, err); }
     }
   }
 

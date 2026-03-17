@@ -17,10 +17,12 @@ export interface ViewState {
   txError: string | null;
   /** Address to explore after switching back from transaction mode */
   pendingExplore: string | null;
+  /** Address that was in the URL before opening a transaction */
+  previousAddress: string | null;
 }
 
 export type ViewAction =
-  | { type: "OPEN_TRANSACTION"; signature: string }
+  | { type: "OPEN_TRANSACTION"; signature: string; previousAddress?: string | null }
   | { type: "SET_TX_DATA"; data: TransactionViewData }
   | { type: "SET_TX_ERROR"; error: string }
   | { type: "BACK_TO_GRAPH"; pendingExplore?: string }
@@ -33,6 +35,7 @@ const initialState: ViewState = {
   txLoading: false,
   txError: null,
   pendingExplore: null,
+  previousAddress: null,
 };
 
 function viewReducer(state: ViewState, action: ViewAction): ViewState {
@@ -45,6 +48,7 @@ function viewReducer(state: ViewState, action: ViewAction): ViewState {
         txData: null,
         txLoading: true,
         txError: null,
+        previousAddress: action.previousAddress ?? state.previousAddress,
       };
     case "SET_TX_DATA":
       return {
@@ -68,6 +72,7 @@ function viewReducer(state: ViewState, action: ViewAction): ViewState {
         txLoading: false,
         txError: null,
         pendingExplore: action.pendingExplore ?? null,
+        previousAddress: null,
       };
     case "CLEAR_PENDING_EXPLORE":
       return {
@@ -92,10 +97,11 @@ export function ViewProvider({ children }: { children: ReactNode }) {
   const openTransaction = useCallback(
     (signature: string) => {
       const url = new URL(window.location.href);
+      const currentAddress = url.searchParams.get("address") ?? null;
       url.searchParams.delete("address");
       url.searchParams.set("tx", signature);
       window.history.pushState({}, "", url.toString());
-      dispatch({ type: "OPEN_TRANSACTION", signature });
+      dispatch({ type: "OPEN_TRANSACTION", signature, previousAddress: currentAddress });
     },
     [dispatch],
   );
@@ -103,12 +109,13 @@ export function ViewProvider({ children }: { children: ReactNode }) {
   const backToGraph = useCallback((pendingExplore?: string) => {
     const url = new URL(window.location.href);
     url.searchParams.delete("tx");
-    if (pendingExplore) {
-      url.searchParams.set("address", pendingExplore);
+    const addressToRestore = pendingExplore ?? state.previousAddress;
+    if (addressToRestore) {
+      url.searchParams.set("address", addressToRestore);
     }
     window.history.pushState({}, "", url.toString());
     dispatch({ type: "BACK_TO_GRAPH", pendingExplore });
-  }, [dispatch]);
+  }, [dispatch, state.previousAddress]);
 
   const value = useMemo(
     () => ({ state, dispatch, openTransaction, backToGraph }),

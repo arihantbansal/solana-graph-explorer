@@ -28,6 +28,7 @@ export function formatRelativeTime(unixTimestamp: number): string {
   const now = Math.floor(Date.now() / 1000);
   const diff = now - unixTimestamp;
 
+  if (diff < 1) return "just now";
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
@@ -38,6 +39,20 @@ export function formatRelativeTime(unixTimestamp: number): string {
 /** Format a unix timestamp as a localized date/time string */
 export function formatAbsoluteTime(unixTimestamp: number): string {
   return new Date(unixTimestamp * 1000).toLocaleString();
+}
+
+/** Convert a unix timestamp (seconds) to a datetime-local input value string */
+export function toDateInputValue(ts?: number): string {
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  return d.toISOString().slice(0, 16);
+}
+
+/** Convert a datetime-local input value string to a unix timestamp (seconds) */
+export function fromDateInputValue(val: string): number | undefined {
+  if (!val) return undefined;
+  const ts = Math.floor(new Date(val).getTime() / 1000);
+  return isNaN(ts) ? undefined : ts;
 }
 
 /** Check if a string looks like a transaction signature (base58, ~87-88 chars) */

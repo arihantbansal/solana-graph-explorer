@@ -47,7 +47,8 @@ export interface ParsedTransaction {
 }
 
 export interface TransactionFilter {
-  timeRange: "1h" | "24h" | "7d" | "30d" | "all";
+  fromDate?: number; // unix timestamp (seconds)
+  toDate?: number;   // unix timestamp (seconds)
   statusFilter: "all" | "success" | "failed";
   instructionFilter?: string;
 }
@@ -69,6 +70,7 @@ export interface BalanceChange {
 /** Token balance change computed from pre/post token balances */
 export interface TokenBalanceChange {
   address: string;
+  owner?: string;
   mint: string;
   preAmount: number;
   postAmount: number;

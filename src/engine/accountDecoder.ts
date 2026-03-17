@@ -174,21 +174,11 @@ export function identifyAccountType(
 ): { name: string; discriminator: number[] } | null {
   if (!idl.accounts || data.length < 8) return null;
 
-  for (const account of idl.accounts) {
-    const disc = account.discriminator;
-    if (!disc || disc.length !== 8) continue;
-
-    let match = true;
-    for (let i = 0; i < 8; i++) {
-      if (data[i] !== disc[i]) {
-        match = false;
-        break;
-      }
-    }
-    if (match) return account;
-  }
-
-  return null;
+  return idl.accounts.find(
+    (account) =>
+      account.discriminator?.length === 8 &&
+      account.discriminator.every((b, i) => b === data[i]),
+  ) ?? null;
 }
 
 // --- Field reader ---

@@ -6,11 +6,19 @@ import { useGraph } from "@/contexts/GraphContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useExploreAddress } from "@/hooks/useExploreAddress";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useHistory } from "@/contexts/HistoryContext";
 import { PdaRuleCreator } from "@/components/PdaRuleCreator";
 import { BytesFieldDisplay } from "@/components/BytesFieldDisplay";
-import { X, GitBranchPlus, ChevronsDownUp, ChevronsUpDown, EyeOff, Eye, ChevronRight } from "lucide-react";
-import { CopyButton } from "@/components/CopyButton";
 import { TransactionHistory } from "@/components/TransactionHistory";
+import { TokenBalances } from "@/components/TokenBalances";
+import { BalanceChangeHistory } from "@/components/BalanceChangeHistory";
+import { AssetsPanel } from "@/components/AssetsPanel";
+import { MetadataFetcher } from "@/components/MetadataFetcher";
+import { IdlViewer } from "@/components/IdlViewer";
+import { ProgramAccounts } from "@/components/ProgramAccounts";
+import { hasIdl } from "@/solana/idlCache";
+import { X, GitBranchPlus, ChevronsDownUp, ChevronsUpDown, EyeOff, Eye, ChevronRight, ExternalLink, Shield } from "lucide-react";
+import { CopyButton } from "@/components/CopyButton";
 import { useView } from "@/contexts/ViewContext";
 import { useClearAndExplore } from "@/hooks/useClearAndExplore";
 import { expandAccount } from "@/engine/expandAccount";
@@ -127,20 +135,40 @@ const MAX_WIDTH = 800;
 /** Cache scroll positions per address so navigating back restores position */
 const scrollPositionCache = new Map<string, number>();
 
+/** Cache active tab per address */
+const activeTabCache = new Map<string, TabKey>();
+
+type TabKey = "transactions" | "balanceChanges" | "tokens" | "assets" | "idl" | "accounts";
+
+const BASE_TABS: { key: TabKey; label: string }[] = [
+  { key: "transactions", label: "Transactions" },
+  { key: "balanceChanges", label: "Balance Changes" },
+  { key: "tokens", label: "Tokens" },
+  { key: "assets", label: "Assets" },
+];
+
+const PROGRAM_TABS: { key: TabKey; label: string }[] = [
+  { key: "transactions", label: "Transactions" },
+  { key: "accounts", label: "Accounts" },
+];
+
 export function NodeDetailPanel() {
   const { state, dispatch, selectedNode, getNodeEdges, nodeIds } = useGraph();
-  const { rpcEndpoint, savedPrograms, saveProgram, collapsedAddresses, getBytesEncoding, setBytesEncoding, isCollapsedAddress, addCollapsedAddress, removeCollapsedAddress } = useSettings();
+  const { rpcEndpoint, savedPrograms, saveProgram, collapsedAddresses, getBytesEncoding, setBytesEncoding, isCollapsedAddress, addCollapsedAddress, removeCollapsedAddress, getLabel } = useSettings();
   const exploreAddress = useExploreAddress();
   const { state: viewState, openTransaction } = useView();
   const clearAndExplore = useClearAndExplore();
+  const { addHistoryItem } = useHistory();
   const isMobile = useMediaQuery("(max-width: 1023px)");
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [pdaRuleOpen, setPdaRuleOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabKey>("transactions");
   const isDragging = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevAddressRef = useRef<string | null>(null);
+  const historyTrackedRef = useRef<string | null>(null);
 
   const isOpen = state.selectedNodeId !== null && selectedNode !== undefined;
 
@@ -150,11 +178,18 @@ export function NodeDetailPanel() {
     if (prevAddressRef.current && scrollRef.current) {
       scrollPositionCache.set(prevAddressRef.current, scrollRef.current.scrollTop);
     }
+    // Save active tab for old address
+    if (prevAddressRef.current) {
+      activeTabCache.set(prevAddressRef.current, activeTab);
+    }
     prevAddressRef.current = currentAddress;
-    // Restore scroll position for new node after render
+    // Restore scroll position and tab for new node after render
     if (currentAddress && scrollRef.current) {
       const saved = scrollPositionCache.get(currentAddress);
       scrollRef.current.scrollTop = saved ?? 0;
+    }
+    if (currentAddress) {
+      setActiveTab(activeTabCache.get(currentAddress) ?? "transactions");
     }
   }
 
@@ -165,7 +200,34 @@ export function NodeDetailPanel() {
       scrollRef.current.scrollTop = saved ?? 0;
     }
   }, [currentAddress]);
+
+  // Track account visits in history
+  useEffect(() => {
+    if (!selectedNode || selectedNode.data.isLoading) return;
+    const addr = selectedNode.data.address;
+    if (historyTrackedRef.current === addr) return;
+    historyTrackedRef.current = addr;
+
+    addHistoryItem({
+      type: "account",
+      id: addr,
+      accountType: selectedNode.data.accountType,
+      programName: selectedNode.data.programName,
+      timestamp: Date.now(),
+    });
+  }, [selectedNode?.data.address, selectedNode?.data.isLoading, selectedNode?.data.accountType, selectedNode?.data.programName, addHistoryItem]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const edges = selectedNode ? getNodeEdges(selectedNode.id) : [];
+
+  // Compute dynamic tabs — programs get Transactions + Accounts + IDL; others get base tabs
+  const tabs = (() => {
+    const isProgram = !!selectedNode?.data.programInfo;
+    const result = isProgram ? [...PROGRAM_TABS] : [...BASE_TABS];
+    if (isProgram && hasIdl(selectedNode!.data.address)) {
+      result.push({ key: "idl", label: "IDL" });
+    }
+    return result;
+  })();
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     isDragging.current = true;
@@ -193,14 +255,21 @@ export function NodeDetailPanel() {
 
   if (!isOpen || !selectedNode) return null;
 
-  // Filter decoded fields: hide pubkey values already on the graph
+  // Extract metadata URI from decoded data (Metaplex metadata accounts, DAS assets)
+  const metadataUri = selectedNode.data.decodedData?.uri;
+  const hasMetadataUri = typeof metadataUri === "string" && metadataUri.startsWith("http");
+
+  // Filter decoded fields: hide pubkey values already on the graph, hide uri (rendered by MetadataFetcher)
   const decodedEntries = useMemo(
     () => selectedNode.data.decodedData
       ? Object.entries(selectedNode.data.decodedData).filter(
-          ([, value]) => !isPubkey(value) || !nodeIds.has(value),
+          ([key, value]) => {
+            if (key === "uri" && hasMetadataUri) return false;
+            return !isPubkey(value) || !nodeIds.has(value);
+          },
         )
       : [],
-    [selectedNode.data.decodedData, nodeIds],
+    [selectedNode.data.decodedData, nodeIds, hasMetadataUri],
   );
 
   const content = (
@@ -231,15 +300,20 @@ export function NodeDetailPanel() {
                 {selectedNode.data.address}
               </button>
             ) : (
-              <div className="font-mono text-xs text-muted-foreground break-all">
+              <button
+                onClick={() => clearAndExplore(selectedNode.data.address)}
+                className="font-mono text-xs text-blue-500 hover:underline break-all text-left cursor-pointer"
+                title="Explore this account"
+              >
                 {selectedNode.data.address}
-              </div>
+              </button>
             )}
             <CopyButton value={selectedNode.data.address} />
           </div>
         </div>
 
-        <div className="px-4 space-y-4 pb-6">
+        {/* Static info section */}
+        <div className="px-4 space-y-4 pb-2">
           {/* Type */}
           {selectedNode.data.accountType && (
             <div>
@@ -292,6 +366,152 @@ export function NodeDetailPanel() {
               </div>
             </div>
           )}
+
+          {/* Program Info */}
+          {selectedNode.data.programInfo && (() => {
+            const pi = selectedNode.data.programInfo;
+            return (
+              <div className="rounded-md border border-border overflow-hidden">
+                {/* Status bar */}
+                <div className={`px-3 py-1.5 text-xs font-medium flex items-center justify-between ${
+                  pi.isUpgradeable
+                    ? "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
+                    : "bg-green-500/10 text-green-700 dark:text-green-400"
+                }`}>
+                  <span>{pi.isUpgradeable ? "Upgradeable" : "Immutable"}</span>
+                  <span className="font-mono text-[10px] opacity-70">Slot {pi.lastDeployedSlot.toLocaleString()}</span>
+                </div>
+
+                <div className="divide-y divide-border">
+                  {/* Authority */}
+                  <div className="px-3 py-2">
+                    <div className="text-[10px] text-muted-foreground mb-0.5">
+                      Upgrade Authority
+                      {pi.squadsInfo && (
+                        <Badge variant="secondary" className="ml-1.5 text-[9px] px-1 py-0 bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/20">
+                          Squads {pi.squadsInfo.version.toUpperCase()}
+                        </Badge>
+                      )}
+                    </div>
+                    {pi.authority ? (
+                      <div className="flex items-start gap-1">
+                        <button
+                          onClick={() => exploreAddress(pi.authority!, { sourceNodeId: selectedNode.id, fieldName: "authority", depth: 0 })}
+                          className="font-mono text-[11px] text-blue-500 hover:underline break-all text-left cursor-pointer"
+                        >
+                          {getLabel(pi.authority) ?? pi.authority}
+                        </button>
+                        <CopyButton value={pi.authority} iconSize="size-2.5" />
+                      </div>
+                    ) : (
+                      <span className="font-mono text-[11px] text-muted-foreground">None (Immutable)</span>
+                    )}
+                  </div>
+
+                  {/* Program Data */}
+                  <div className="px-3 py-2">
+                    <div className="text-[10px] text-muted-foreground mb-0.5">Program Data</div>
+                    <div className="flex items-start gap-1">
+                      <button
+                        onClick={() => exploreAddress(pi.programdataAddress, { sourceNodeId: selectedNode.id, fieldName: "programdata", depth: 0 })}
+                        className="font-mono text-[11px] text-blue-500 hover:underline break-all text-left cursor-pointer"
+                      >
+                        {getLabel(pi.programdataAddress) ?? pi.programdataAddress}
+                      </button>
+                      <CopyButton value={pi.programdataAddress} iconSize="size-2.5" />
+                    </div>
+                  </div>
+
+                  {/* Security.txt */}
+                  {pi.securityTxt && Object.keys(pi.securityTxt).length > 0 && (
+                    <div className="px-3 py-2">
+                      <div className="text-[10px] text-muted-foreground mb-1.5 flex items-center gap-1">
+                        <Shield className="size-3" />
+                        security.txt
+                      </div>
+                      <div className="space-y-1">
+                        {Object.entries(pi.securityTxt).filter(([, v]) => v).map(([key, value]) => (
+                          <div key={key} className="flex items-baseline justify-between gap-3 text-[11px]">
+                            <span className="text-muted-foreground whitespace-nowrap">{key}</span>
+                            <span className="text-right break-all">
+                              {value.startsWith("http://") || value.startsWith("https://") ? (
+                                <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline inline-flex items-center gap-0.5">
+                                  {value.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                                  <ExternalLink className="size-2 inline shrink-0" />
+                                </a>
+                              ) : (
+                                <span className="font-mono">{value}</span>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Squads Multisig Info (for system accounts associated with a multisig) */}
+          {selectedNode.data.squadsInfo && (() => {
+            const si = selectedNode.data.squadsInfo;
+            const md = si.multisigData as Record<string, unknown> | undefined;
+            const members = md?.members as Array<{ key: string; permissions: number }> | undefined;
+            return (
+              <div className="rounded-md border border-purple-500/20 overflow-hidden">
+                <div className="px-3 py-1.5 text-xs font-medium bg-purple-500/10 text-purple-700 dark:text-purple-400 flex items-center justify-between">
+                  <span>Squads {si.version.toUpperCase()} Multisig</span>
+                  {md?.threshold !== undefined && members && (
+                    <span className="font-mono text-[10px] opacity-80">{String(md.threshold)}/{members.length} threshold</span>
+                  )}
+                </div>
+                <div className="divide-y divide-border">
+                  {/* Multisig config account */}
+                  <div className="px-3 py-2">
+                    <div className="text-[10px] text-muted-foreground mb-0.5">Multisig Config</div>
+                    <div className="flex items-start gap-1">
+                      <button
+                        onClick={() => exploreAddress(si.multisigAddress, { sourceNodeId: selectedNode.id, fieldName: "multisig", depth: 0 })}
+                        className="font-mono text-[11px] text-blue-500 hover:underline break-all text-left cursor-pointer"
+                      >
+                        {getLabel(si.multisigAddress) ?? si.multisigAddress}
+                      </button>
+                      <CopyButton value={si.multisigAddress} iconSize="size-2.5" />
+                    </div>
+                  </div>
+                  {/* Members */}
+                  {members && members.length > 0 && (
+                    <div className="px-3 py-2">
+                      <div className="text-[10px] text-muted-foreground mb-1">Members ({members.length})</div>
+                      <div className="space-y-1">
+                        {members.map((m, i) => {
+                          const perms: string[] = [];
+                          if (m.permissions & 1) perms.push("Propose");
+                          if (m.permissions & 2) perms.push("Vote");
+                          if (m.permissions & 4) perms.push("Execute");
+                          return (
+                            <div key={i} className="flex items-start gap-1.5">
+                              <button
+                                onClick={() => exploreAddress(m.key, { sourceNodeId: selectedNode.id, fieldName: `member[${i}]`, depth: 0 })}
+                                className="font-mono text-[10px] text-blue-500 hover:underline break-all text-left cursor-pointer shrink min-w-0"
+                              >
+                                {getLabel(m.key) ?? m.key}
+                              </button>
+                              <CopyButton value={m.key} iconSize="size-2" />
+                              <span className="text-[9px] text-muted-foreground whitespace-nowrap shrink-0">
+                                {perms.join(", ") || `perm:${m.permissions}`}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Decoded Fields */}
           {decodedEntries.length > 0 && (
@@ -364,12 +584,15 @@ export function NodeDetailPanel() {
             </div>
           )}
 
-          {/* Transaction History */}
-          <TransactionHistory
-            address={selectedNode.data.address}
-            rpcUrl={rpcEndpoint}
-            onTransactionClick={openTransaction}
-          />
+          {/* Metadata URI + Fetch */}
+          {hasMetadataUri && (
+            <div>
+              <h4 className="text-xs font-medium text-muted-foreground mb-1">
+                Off-chain Metadata
+              </h4>
+              <MetadataFetcher uri={metadataUri as string} />
+            </div>
+          )}
 
           {/* Connected Edges */}
           {edges.length > 0 && (
@@ -401,7 +624,73 @@ export function NodeDetailPanel() {
               {selectedNode.data.error}
             </div>
           )}
+        </div>
 
+        {/* Tab bar */}
+        <div className="px-4 border-b border-border sticky top-10 bg-background z-10">
+          <div className="flex gap-0 -mb-px overflow-x-auto">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`px-3 py-1.5 text-xs whitespace-nowrap border-b-2 transition-colors ${
+                  activeTab === tab.key
+                    ? "border-primary text-foreground font-medium"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tab content */}
+        <div className="px-4 py-3 pb-6">
+          {activeTab === "transactions" && (
+            <TransactionHistory
+              address={selectedNode.data.address}
+              rpcUrl={rpcEndpoint}
+              onTransactionClick={openTransaction}
+            />
+          )}
+          {activeTab === "balanceChanges" && (
+            <BalanceChangeHistory
+              address={selectedNode.data.address}
+              rpcUrl={rpcEndpoint}
+              onTransactionClick={openTransaction}
+            />
+          )}
+          {activeTab === "tokens" && (
+            <TokenBalances
+              address={selectedNode.data.address}
+              rpcUrl={rpcEndpoint}
+              onTokenClick={(tokenAccount) => {
+                exploreAddress(tokenAccount, { sourceNodeId: selectedNode.id, fieldName: "tokenAccount", depth: 0 });
+              }}
+            />
+          )}
+          {activeTab === "assets" && (
+            <AssetsPanel
+              address={selectedNode.data.address}
+              rpcUrl={rpcEndpoint}
+              onAssetClick={(assetId) => {
+                exploreAddress(assetId, { sourceNodeId: selectedNode.id, fieldName: "asset", depth: 0 });
+              }}
+            />
+          )}
+          {activeTab === "accounts" && (
+            <ProgramAccounts
+              programAddress={selectedNode.data.address}
+              rpcUrl={rpcEndpoint}
+              onAccountClick={(addr) => {
+                exploreAddress(addr, { sourceNodeId: selectedNode.id, fieldName: "programAccount", depth: 0 });
+              }}
+            />
+          )}
+          {activeTab === "idl" && (
+            <IdlViewer programAddress={selectedNode.data.address} />
+          )}
         </div>
 
         {/* Action buttons — sticky at bottom */}

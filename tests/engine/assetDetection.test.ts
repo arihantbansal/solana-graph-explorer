@@ -26,6 +26,7 @@ describe("parseAssetResponse", () => {
 
     expect(result).toEqual({
       name: "Cool NFT #42",
+      symbol: "COOL",
       image: "https://arweave.net/abc123",
       isNft: true,
       owner: null,
@@ -148,6 +149,7 @@ describe("detectAsset", () => {
       );
       expect(result).toEqual({
         name: "Test NFT",
+        symbol: undefined,
         image: "https://example.com/img.png",
         isNft: true,
         owner: null,

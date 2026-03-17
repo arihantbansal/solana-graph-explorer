@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -28,6 +29,7 @@ const BYTES_ENCODINGS_KEY = "solana-graph-explorer:bytes-encodings";
 const PDA_SEARCHES_KEY = "solana-graph-explorer:saved-pda-searches";
 const COLLAPSED_ADDRESSES_KEY = "solana-graph-explorer:collapsed-addresses";
 const EXPANSION_DEPTH_KEY = "solana-graph-explorer:expansion-depth";
+const DARK_MODE_KEY = "solana-graph-explorer:dark-mode";
 const DEFAULT_EXPANSION_DEPTH = 2;
 
 /** Map of "accountType:fieldName" → preferred encoding */
@@ -77,6 +79,8 @@ interface SettingsContextValue {
   isCollapsedAddress: (address: string) => boolean;
   expansionDepth: number;
   setExpansionDepth: (depth: SetStateAction<number>) => void;
+  darkMode: boolean;
+  setDarkMode: (dark: boolean) => void;
   exportSettings: () => string;
   importSettings: (json: string) => void;
 }
@@ -97,7 +101,8 @@ function loadRules(): PdaRelationshipRule[] {
       localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(valid));
     }
     return valid as PdaRelationshipRule[];
-  } catch {
+  } catch (err) {
+    console.warn("Failed to load relationship rules from localStorage", err);
     return [];
   }
 }
@@ -108,9 +113,38 @@ function saveRules(rules: PdaRelationshipRule[]) {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
+/** Read initial network from URL ?network= param */
+function getInitialRpcFromUrl(): { key: RpcEndpointKey; customUrl: string } {
+  const params = new URLSearchParams(window.location.search);
+  const network = params.get("network");
+  const customUrl = params.get("rpc") ?? "";
+  if (network && RPC_OPTIONS.some((o) => o.key === network)) {
+    return { key: network as RpcEndpointKey, customUrl };
+  }
+  return { key: "mainnet", customUrl };
+}
+
+/** Sync network to URL — only add param if not mainnet */
+function syncNetworkToUrl(key: RpcEndpointKey, customUrl: string) {
+  const url = new URL(window.location.href);
+  if (key === "mainnet") {
+    url.searchParams.delete("network");
+    url.searchParams.delete("rpc");
+  } else {
+    url.searchParams.set("network", key);
+    if (key === "custom" && customUrl) {
+      url.searchParams.set("rpc", customUrl);
+    } else {
+      url.searchParams.delete("rpc");
+    }
+  }
+  window.history.replaceState({}, "", url.toString());
+}
+
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [rpcEndpointKey, setRpcEndpointKey] = useState<RpcEndpointKey>("mainnet");
-  const [customRpcUrl, setCustomRpcUrl] = useState("");
+  const initialRpc = getInitialRpcFromUrl();
+  const [rpcEndpointKey, setRpcEndpointKeyState] = useState<RpcEndpointKey>(initialRpc.key);
+  const [customRpcUrl, setCustomRpcUrlState] = useState(initialRpc.customUrl);
   const [relationshipRules, setRelationshipRules] = useState<PdaRelationshipRule[]>(
     loadRules
   );
@@ -120,11 +154,33 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [savedPdaSearches, setSavedPdaSearches] = usePersistedState<SavedPdaSearch[]>(PDA_SEARCHES_KEY, []);
   const [collapsedAddresses, setCollapsedAddresses] = usePersistedState<string[]>(COLLAPSED_ADDRESSES_KEY, []);
   const [expansionDepth, setExpansionDepthState] = usePersistedState<number>(EXPANSION_DEPTH_KEY, DEFAULT_EXPANSION_DEPTH);
+  const [darkMode, setDarkModeState] = usePersistedState<boolean>(DARK_MODE_KEY, window.matchMedia("(prefers-color-scheme: dark)").matches);
+
+  // Sync .dark class on <html> element
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+  }, [darkMode]);
+
+  const setDarkMode = useCallback((dark: boolean) => {
+    setDarkModeState(dark);
+  }, [setDarkModeState]);
 
   const rpcEndpoint =
     rpcEndpointKey === "custom"
       ? customRpcUrl
       : (RPC_OPTIONS.find((o) => o.key === rpcEndpointKey)?.url ?? RPC_OPTIONS[0].url);
+
+  const setRpcEndpointKey = useCallback((key: RpcEndpointKey) => {
+    setRpcEndpointKeyState(key);
+    syncNetworkToUrl(key, customRpcUrl);
+  }, [customRpcUrl]);
+
+  const setCustomRpcUrl = useCallback((url: string) => {
+    setCustomRpcUrlState(url);
+    if (rpcEndpointKey === "custom") {
+      syncNetworkToUrl(rpcEndpointKey, url);
+    }
+  }, [rpcEndpointKey]);
 
   const addRelationshipRule = useCallback((rule: PdaRelationshipRule) => {
     setRelationshipRules((prev) => {
@@ -240,6 +296,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       programId,
       programName,
     }));
+    // Include history from localStorage
+    let history: unknown[] = [];
+    try {
+      const raw = localStorage.getItem("solana-graph-explorer:history");
+      if (raw) history = JSON.parse(raw);
+    } catch (err) { console.warn("Failed to load history from localStorage during export", err); }
     return JSON.stringify({
       version: 1,
       rpcEndpointKey,
@@ -251,8 +313,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       savedPdaSearches,
       collapsedAddresses,
       expansionDepth,
+      darkMode,
+      history,
     }, null, 2);
-  }, [rpcEndpointKey, customRpcUrl, relationshipRules, savedPrograms, addressLabels, bytesEncodings, savedPdaSearches, collapsedAddresses, expansionDepth]);
+  }, [rpcEndpointKey, customRpcUrl, relationshipRules, savedPrograms, addressLabels, bytesEncodings, savedPdaSearches, collapsedAddresses, expansionDepth, darkMode]);
 
   const importSettings = useCallback((json: string) => {
     const data = JSON.parse(json);
@@ -283,10 +347,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           ? importedCustomUrl
           : (RPC_OPTIONS.find((o) => o.key === importedRpcKey)?.url ?? RPC_OPTIONS[0].url);
 
-      // Re-fetch all IDLs in parallel
-      for (const program of strippedPrograms) {
-        fetchIdl(program.programId, rpcUrl)
-          .then((idl) => {
+      // Re-fetch all IDLs in parallel (fire-and-forget — don't block import)
+      Promise.all(
+        strippedPrograms.map(async (program) => {
+          try {
+            const idl = await fetchIdl(program.programId, rpcUrl);
             if (idl) {
               setIdl(program.programId, idl);
               const updatedEntry: ProgramEntry = {
@@ -303,11 +368,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
                 return next;
               });
             }
-          })
-          .catch(() => {
-            // IDL fetch failed — leave as null
-          });
-      }
+          } catch (err) {
+            console.warn(`Failed to re-fetch IDL for program ${program.programId} during import`, err);
+          }
+        }),
+      );
     }
     if (data.addressLabels && typeof data.addressLabels === "object") {
       setAddressLabelsState(data.addressLabels);
@@ -325,6 +390,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     if (typeof data.expansionDepth === "number") {
       setExpansionDepthState(Math.max(1, Math.min(5, data.expansionDepth)));
     }
+    if (typeof data.darkMode === "boolean") {
+      setDarkModeState(data.darkMode);
+    }
+    // Import history
+    if (Array.isArray(data.history)) {
+      localStorage.setItem("solana-graph-explorer:history", JSON.stringify(data.history));
+    }
   }, [rpcEndpointKey, customRpcUrl]);
 
   const value = useMemo<SettingsContextValue>(() => ({
@@ -335,7 +407,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     bytesEncodings, setBytesEncoding, getBytesEncoding,
     savedPdaSearches, addPdaSearch, removePdaSearch,
     collapsedAddresses, addCollapsedAddress, removeCollapsedAddress, isCollapsedAddress,
-    expansionDepth, setExpansionDepth, exportSettings, importSettings,
+    expansionDepth, setExpansionDepth,
+    darkMode, setDarkMode,
+    exportSettings, importSettings,
   }), [
     rpcEndpoint, rpcEndpointKey, setRpcEndpointKey, customRpcUrl, setCustomRpcUrl,
     relationshipRules, addRelationshipRule, removeRelationshipRule,
@@ -344,7 +418,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     bytesEncodings, setBytesEncoding, getBytesEncoding,
     savedPdaSearches, addPdaSearch, removePdaSearch,
     collapsedAddresses, addCollapsedAddress, removeCollapsedAddress, isCollapsedAddress,
-    expansionDepth, setExpansionDepth, exportSettings, importSettings,
+    expansionDepth, setExpansionDepth,
+    darkMode, setDarkMode,
+    exportSettings, importSettings,
   ]);
 
   return (

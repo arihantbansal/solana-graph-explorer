@@ -1,8 +1,10 @@
 export interface DasAssetInfo {
   name: string;
+  symbol?: string;
   image: string | null;
   isNft: boolean;
   owner: string | null;
+  uri?: string;
 }
 
 export interface DasGetAssetResponse {
@@ -25,6 +27,14 @@ export interface DasGetAssetResponse {
     owner?: string;
   };
 }
+
+export const nftInterfaces = [
+  "V1_NFT",
+  "V2_NFT",
+  "ProgrammableNFT",
+  "V1_PRINT",
+  "LEGACY_NFT",
+];
 
 // Cache: address → DasAssetInfo | null (null = confirmed no asset)
 const assetCache = new Map<string, DasAssetInfo | null>();
@@ -88,8 +98,8 @@ async function _fetchAsset(
     }
 
     return parseAssetResponse(json.result);
-  } catch {
-    // DAS API unavailable — graceful fallback
+  } catch (err) {
+    console.warn("DAS API request failed for asset detection", err);
     return null;
   }
 }
@@ -101,16 +111,11 @@ export function parseAssetResponse(
     result.content?.metadata?.name ?? result.id ?? "Unknown";
   const image = result.content?.links?.image ?? null;
 
-  const nftInterfaces = [
-    "V1_NFT",
-    "V2_NFT",
-    "ProgrammableNFT",
-    "V1_PRINT",
-    "LEGACY_NFT",
-  ];
   const isNft = nftInterfaces.includes(result.interface ?? "");
 
   const owner = result.ownership?.owner ?? null;
+  const symbol = result.content?.metadata?.symbol ?? undefined;
+  const uri = result.content?.json_uri ?? undefined;
 
-  return { name, image, isNft, owner };
+  return { name, symbol, image, isNft, owner, uri };
 }

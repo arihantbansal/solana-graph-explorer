@@ -106,8 +106,8 @@ export function guessEncoding(bytes: Uint8Array): BytesDisplayEncoding {
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     if (/^[\x20-\x7e\t\n\r]+$/.test(text)) return "utf8";
-  } catch {
-    // Not valid UTF-8
+  } catch (err) {
+    console.warn("UTF-8 encoding guess failed for bytes field", err);
   }
 
   return "hex";

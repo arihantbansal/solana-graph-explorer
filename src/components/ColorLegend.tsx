@@ -18,18 +18,19 @@ export function ColorLegend() {
   const [collapsed, setCollapsed] = useState(isMobile);
 
   const programs = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const node of state.nodes) {
-      const pid = node.data.programId;
-      if (!pid) continue;
-      if (map.has(pid)) continue;
-      // Use programName from any node, or the address label, or a shortened address
-      const name =
-        node.data.programName ??
-        getLabel(pid) ??
-        `${pid.slice(0, 4)}...${pid.slice(-4)}`;
-      map.set(pid, name);
-    }
+    const map = state.nodes
+      .filter((node) => node.data.programId)
+      .reduce((acc, node) => {
+        const pid = node.data.programId!;
+        if (!acc.has(pid)) {
+          const name =
+            node.data.programName ??
+            getLabel(pid) ??
+            `${pid.slice(0, 4)}...${pid.slice(-4)}`;
+          acc.set(pid, name);
+        }
+        return acc;
+      }, new Map<string, string>());
     return Array.from(map.entries());
   }, [state.nodes, getLabel]);
 

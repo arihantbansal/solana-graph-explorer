@@ -6,8 +6,8 @@ export function loadAddressLabels(): AddressLabels {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw) as AddressLabels;
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn("Failed to load address labels from localStorage", err);
   }
   return {};
 }

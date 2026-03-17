@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
+    "@noble/hashes": "^1.8.0",
     "@solana/kit": "^6.3.0",
     "@xyflow/react": "^12.10.1",
     "class-variance-authority": "^0.7.1",
@@ -21,6 +22,7 @@
     "lucide-react": "^0.577.0",
     "radix-ui": "^1.4.3",
     "react": "^19.2.0",
+    "react-async-hook": "^4.0.0",
     "react-dom": "^19.2.0",
     "react-hook-form": "^7.71.2",
     "tailwind-merge": "^3.5.0",

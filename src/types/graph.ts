@@ -12,6 +12,19 @@ export interface AccountNodeData {
   decodedData?: Record<string, unknown>;
   error?: string;
   thumbnail?: string; // NFT image URL
+  programInfo?: {
+    programdataAddress: string;
+    lastDeployedSlot: number;
+    authority: string | null;
+    isUpgradeable: boolean;
+    securityTxt?: Record<string, string>;
+    squadsInfo?: { version: "v3" | "v4"; multisigAddress: string; multisigData?: Record<string, unknown> };
+  };
+  squadsInfo?: {
+    version: "v3" | "v4";
+    multisigAddress: string;
+    multisigData?: Record<string, unknown>;
+  };
 
   [key: string]: unknown;
 }

@@ -3,6 +3,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { Loader2, ChevronUp, ChevronDown, GripHorizontal } from "lucide-react";
 import { useView } from "@/contexts/ViewContext";
 import { useSettings } from "@/contexts/SettingsContext";
+import { useHistory } from "@/contexts/HistoryContext";
 import { GraphProvider, useGraph } from "@/contexts/GraphContext";
 import { fetchTransactionBySignature } from "@/solana/fetchTransaction";
 import { decodeTransaction } from "@/engine/transactionDecoder";
@@ -47,6 +48,7 @@ const MAX_INFO_RATIO = 0.7; // max 70% of container
 export function TransactionView() {
   const { state, dispatch } = useView();
   const { rpcEndpoint } = useSettings();
+  const { addHistoryItem } = useHistory();
   const [infoHeight, setInfoHeight] = useState(DEFAULT_INFO_HEIGHT);
   const [collapsed, setCollapsed] = useState<"none" | "info" | "graph">("none");
   const [preCollapseHeight, setPreCollapseHeight] = useState(DEFAULT_INFO_HEIGHT);
@@ -99,6 +101,22 @@ export function TransactionView() {
       cancelled = true;
     };
   }, [state.txSignature, state.txLoading, rpcEndpoint, dispatch]);
+
+  // Track transaction visits in history
+  useEffect(() => {
+    if (!state.txData || !state.txSignature) return;
+    const tx = state.txData.transaction;
+    const instructionNames = tx.instructions
+      .map((ix) => ix.decoded?.instructionName)
+      .filter((n): n is string => !!n);
+    addHistoryItem({
+      type: "transaction",
+      id: state.txSignature,
+      timestamp: Date.now(),
+      blockTime: tx.blockTime ?? undefined,
+      instructionNames: instructionNames.length > 0 ? instructionNames : undefined,
+    });
+  }, [state.txData, state.txSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     isDragging.current = true;
